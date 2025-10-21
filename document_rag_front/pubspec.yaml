@@ -1,0 +1,27 @@
+name: document_chat
+description: A new Flutter project.
+publish_to: 'none' 
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.3 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  dio: ^5.4.0
+  flutter_riverpod: ^2.4.9
+  go_router: ^12.1.1
+  file_picker: ^10.3.3
+  url_launcher: ^6.2.2 
+  intl: ^0.18.1
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true

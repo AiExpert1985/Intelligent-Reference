@@ -1,0 +1,90 @@
+# ===========================
+# Global / OS / Editor Files
+# ===========================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.log
+.history
+.atom/
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# ===========================
+# Python Artifacts (Backend)
+# ===========================
+**/__pycache__/
+**/*.py[cod]
+**/*.so
+
+# ===========================
+# Flutter / Dart / Android (Frontend)
+# ===========================
+**/doc/api/
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/build/
+**/app.*.symbols
+**/app.*.map.json
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+
+# ===========================
+# Node / JavaScript (Frontend)
+# ===========================
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===========================
+# Build & Distribution
+# ===========================
+**/build/
+**/dist/
+*.egg-info/
+*.egg
+
+# ===========================
+# Virtual Environments (Backend)
+# ===========================
+**/.venv/
+**/venv/
+**/env/
+**/ENV/
+
+# ===========================
+# Databases
+# ===========================
+**/*.db
+**/*.sqlite
+**/vector_db/
+
+# ===========================
+# Temporary & Cache
+# ===========================
+**/*.tmp
+**/temp/
+**/debug_ocr/
+**/migrate_working_dir/
+
+# ===========================
+# Project-specific
+# ===========================
+**/uploads/
+**/.env*
+**/rag_system.log
+
+# ===========================
+# Miscellaneous
+# ===========================
+.svn/
+.swiftpm/
