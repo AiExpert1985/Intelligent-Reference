@@ -67,7 +67,8 @@ class ChatScreenState extends ConsumerState<ChatScreen> {
                   controller: _scrollController,
                   padding: const EdgeInsets.all(16),
                   itemCount: messages.length,
-                  itemBuilder: (context, index) => _buildMessage(messages[index]),
+                  itemBuilder: (context, index) =>
+                      _buildMessage(messages[index]),
                 ),
               ),
               _buildChatInput(),
@@ -168,7 +169,8 @@ class ChatScreenState extends ConsumerState<ChatScreen> {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.blue[50],
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(12)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,7 +241,8 @@ class ChatScreenState extends ConsumerState<ChatScreen> {
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.highlight, size: 16, color: Colors.orange[700]),
+                      Icon(Icons.highlight,
+                          size: 16, color: Colors.orange[700]),
                       const SizedBox(width: 8),
                       const Text(
                         'Relevant sections:',
@@ -284,7 +287,8 @@ class ChatScreenState extends ConsumerState<ChatScreen> {
                     const SizedBox(width: 8),
                     const Text(
                       'Page preview:',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                     ),
                   ],
                 ),
@@ -426,16 +430,24 @@ class ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  String _buildHighlightedUrl(PageSearchResult r) {
+    if (r.highlightToken == null || r.imageUrl.isEmpty) return r.imageUrl;
+    final u = Uri.tryParse(r.imageUrl);
+    if (u == null) return r.imageUrl;
+    return Uri(
+      scheme: u.scheme,
+      host: u.host,
+      port: u.hasPort ? u.port : null,
+      path: '/page-image/by-token/${r.highlightToken}',
+    ).toString();
+  }
+
   // FULLSCREEN: Show original image
   void _showFullPageImage(BuildContext context, PageSearchResult result) {
-    String imageUrl;
-
-    if (result.highlightToken != null && result.highlightToken!.isNotEmpty) {
-      imageUrl = 'http://100.127.26.110:8000/page-image/by-token/${result.highlightToken}';
-    } else {
-      // Fallback to original non-highlighted image
-      imageUrl = result.imageUrl;
-    }
+    final String imageUrl =
+        (result.highlightToken != null && result.highlightToken!.isNotEmpty)
+            ? _buildHighlightedUrl(result)
+            : result.imageUrl;
 
     Navigator.of(context).push(
       MaterialPageRoute(
