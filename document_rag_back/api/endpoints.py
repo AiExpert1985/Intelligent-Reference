@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
 from database.session import get_db
+from document_rag_back.core.domain import PageSearchResult
 from infrastructure.repositories import SQLDocumentRepository
 from utils.highlight_token import verify
 from infrastructure.image_utils import ImageHighlighter
@@ -147,11 +148,10 @@ async def search_pages_endpoint(
     if not status["ready_for_queries"]:
         raise HTTPException(status_code=400, detail="Please upload a document first")
 
-    pages = await rag_service.search_pages(chat_request.question, top_k=settings.TOP_K)
+    pages: List[PageSearchResult] = await rag_service.search_pages(chat_request.question, top_k=settings.TOP_K)
 
     base_url = str(request.base_url).rstrip("/")
     results: List[PageSearchResultItem] = []
-    base_url = str(request.base_url).rstrip("/")
 
     for p in pages:
         item = PageSearchResultItem(
