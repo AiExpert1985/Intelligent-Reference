@@ -189,6 +189,8 @@ class RAGService(IRAGService):
             logger.warning("No sentences extracted for %s", document.filename)
             return
 
+        self._save_sentences_for_debug(sentence_chunks, document.filename)
+
         texts = [chunk.content for chunk in sentence_chunks]
         embeddings = await self.embedding_service.generate_embeddings(texts)
         for chunk, embedding in zip(sentence_chunks, embeddings):
@@ -984,21 +986,52 @@ class RAGService(IRAGService):
         """Save extracted chunks to text file for OCR troubleshooting."""
         debug_dir = Path("debug_ocr")
         debug_dir.mkdir(exist_ok=True)
-        
+
         debug_file = debug_dir / f"{filename}.txt"
-        
+
         with open(debug_file, "w", encoding="utf-8") as f:
             f.write(f"Total chunks: {len(chunks)}\n")
             f.write("=" * 80 + "\n\n")
-            
+
             for i, chunk in enumerate(chunks, 1):
                 f.write(f"CHUNK {i}\n")
                 f.write(f"Page: {chunk.metadata.get('page', 'N/A')}\n")
                 f.write("-" * 80 + "\n")
                 f.write(chunk.content)
                 f.write("\n\n" + "=" * 80 + "\n\n")
-        
+
         logger.info(f"Debug: Saved {len(chunks)} chunks to {debug_file}")
+
+
+    def _save_sentences_for_debug(self, sentences: List[DocumentChunk], filename: str) -> None:
+        """Persist extracted sentences to a text file for debugging."""
+        if not sentences:
+            return
+
+        debug_dir = Path("debug_ocr")
+        debug_dir.mkdir(exist_ok=True)
+
+        debug_file = debug_dir / f"{filename}_sentences.txt"
+
+        with open(debug_file, "w", encoding="utf-8") as f:
+            f.write(f"Total sentences: {len(sentences)}\n")
+            f.write("=" * 80 + "\n\n")
+
+            for i, sentence in enumerate(sentences, 1):
+                metadata = sentence.metadata or {}
+                page_index = metadata.get("page_index", "N/A")
+                line_ids = metadata.get("line_ids", [])
+                sentence_id = metadata.get("sentence_id", "N/A")
+
+                f.write(f"SENTENCE {i}\n")
+                f.write(f"Page: {page_index}\n")
+                f.write(f"Sentence ID: {sentence_id}\n")
+                f.write(f"Line IDs: {line_ids}\n")
+                f.write("-" * 80 + "\n")
+                f.write(sentence.content.replace("\n", " ").strip())
+                f.write("\n\n" + "=" * 80 + "\n\n")
+
+        logger.info("Debug: Saved %d sentences to %s", len(sentences), debug_file)
 
         
 
