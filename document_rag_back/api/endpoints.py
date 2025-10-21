@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Tuple
 
 from database.session import get_db
-from document_rag_back.core.domain import PageSearchResult
+from core.domain import PageSearchResult
 from infrastructure.repositories import SQLDocumentRepository
 from utils.highlight_token import verify
 from infrastructure.image_utils import ImageHighlighter
