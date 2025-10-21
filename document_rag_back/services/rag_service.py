@@ -125,9 +125,9 @@ class RAGService(IRAGService):
             rel = page_image_paths.get(page_idx)
             if not rel:
                 continue
-            
+
             W, H = Image.open(Path(settings.UPLOADS_DIR) / rel).size
-            
+
             page_lines = []
             for ln in geo.get("lines", []):
                 x, y, w, h = ln.get("bbox_px", [0, 0, 0, 0])
@@ -150,12 +150,14 @@ class RAGService(IRAGService):
                 })
             
             lines_meta[str(page_idx)] = page_lines
-        
+
         # Update metadata
         meta = document.metadata or {}
         meta["lines"] = lines_meta
         document.metadata = meta
         await self.document_repo.update_metadata(document.id, meta)
+
+        self._save_lines_for_debug(lines_meta, document.filename)
 
     async def _create_and_store_sentence_embeddings(
         self,
@@ -1033,7 +1035,54 @@ class RAGService(IRAGService):
 
         logger.info("Debug: Saved %d sentences to %s", len(sentences), debug_file)
 
-        
+
+
+    def _save_lines_for_debug(self, lines_by_page: Dict[str, List[Dict[str, Any]]], filename: str) -> None:
+        """Persist extracted lines to a text file for debugging."""
+        if not lines_by_page:
+            return
+
+        total_lines = sum(len(lines or []) for lines in lines_by_page.values())
+        if total_lines == 0:
+            return
+
+        debug_dir = Path("debug_ocr")
+        debug_dir.mkdir(exist_ok=True)
+
+        debug_file = debug_dir / f"{filename}_lines.txt"
+
+        def _page_sort_key(page_key: str) -> Tuple[int, str]:
+            try:
+                return int(page_key), page_key
+            except (TypeError, ValueError):
+                return 0, page_key
+
+        with open(debug_file, "w", encoding="utf-8") as f:
+            f.write(f"Total lines: {total_lines}\n")
+            f.write("=" * 80 + "\n\n")
+
+            for page_key in sorted(lines_by_page.keys(), key=_page_sort_key):
+                page_lines = lines_by_page.get(page_key) or []
+                if not page_lines:
+                    continue
+
+                f.write(f"PAGE {page_key}\n")
+                f.write("-" * 80 + "\n")
+
+                for idx, line in enumerate(page_lines, 1):
+                    line_id = line.get("line_id", "N/A")
+                    bbox = line.get("bbox", [])
+                    text = (line.get("text", "") or "").replace("\n", " ").strip()
+
+                    f.write(f"Line {idx} (ID: {line_id})\n")
+                    f.write(f"BBox: {bbox}\n")
+                    f.write(text + "\n\n")
+
+                f.write("=" * 80 + "\n\n")
+
+        logger.info("Debug: Saved %d lines to %s", total_lines, debug_file)
+
+
 
     async def search_pages(self, query: str, top_k: int = 5) -> List[PageSearchResult]:
         """
