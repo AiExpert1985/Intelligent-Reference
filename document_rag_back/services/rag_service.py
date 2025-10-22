@@ -720,19 +720,41 @@ class RAGService(IRAGService):
         
 
     async def retrieve_chunks(self, query: str, top_k: int):
-        """Retrieve top-K chunks by semantic similarity."""
+        """Retrieve top-K chunks by semantic similarity with document existence filtering."""
         emb = await self.embedding_service.generate_query_embedding(query)
         try:
-            return await asyncio.wait_for(
+            results = await asyncio.wait_for(
                 self.vector_store.search(emb, top_k=top_k),
                 timeout=settings.HYBRID_RETRIEVAL_TIMEOUT_SEC
             )
         except asyncio.TimeoutError:
             logger.warning(f"Chunk retrieval timed out after {settings.HYBRID_RETRIEVAL_TIMEOUT_SEC}s")
             return []
+        
+        # ✅ FIX: Drop hits for deleted/missing documents (same as sentence path)
+        if results:
+            doc_ids = {
+                (res.chunk.document_id or res.chunk.metadata.get("document_id"))
+                for res in results
+                if res and hasattr(res, "chunk") and res.chunk
+            }
+            doc_ids.discard(None)
+            
+            if doc_ids:
+                existing = await self.document_repo.exists_bulk(list(doc_ids))
+                results = [
+                    res for res in results
+                    if (res.chunk.document_id or res.chunk.metadata.get("document_id")) in existing
+                ]
+                
+                dropped = len(doc_ids) - len(existing)
+                if dropped > 0:
+                    logger.info(f"[RETRIEVE] Filtered out {dropped} chunk hits from deleted documents")
+        
+        return results
 
     async def retrieve_sentences(self, query: str, top_k: int):
-        """Retrieve top-K sentences for hybrid scoring."""
+        """Retrieve top-K sentences for hybrid scoring with document existence filtering."""
         if not self.sentence_vector_store:
             logger.debug("Sentence vector store not available, returning empty")
             return []
@@ -750,7 +772,30 @@ class RAGService(IRAGService):
             )
             return []
 
-        return [res for res in results if res and hasattr(res, "chunk")]
+        # Filter out invalid results
+        results = [res for res in results if res and hasattr(res, "chunk")]
+        
+        # ✅ FIX: Drop hits for deleted/missing documents
+        if results:
+            doc_ids = {
+                (res.chunk.document_id or res.chunk.metadata.get("document_id"))
+                for res in results
+                if res.chunk
+            }
+            doc_ids.discard(None)  # Remove None values
+            
+            if doc_ids:
+                existing = await self.document_repo.exists_bulk(list(doc_ids))
+                results = [
+                    res for res in results
+                    if (res.chunk.document_id or res.chunk.metadata.get("document_id")) in existing
+                ]
+                
+                dropped = len(doc_ids) - len(existing)
+                if dropped > 0:
+                    logger.info(f"[RETRIEVE] Filtered out {dropped} sentence hits from deleted documents")
+        
+        return results
 
     async def retrieve_lines(self, query: str, top_k: int):
         """
@@ -772,29 +817,34 @@ class RAGService(IRAGService):
     def score_pages(self, query: str, sentence_hits, chunk_hits):
         """
         Hybrid scoring:
-          - z-score per index → sigmoid to [0,1]
-          - Sentences: MaxP + saturation (top-m)
-          - Chunks: MaxP
-          - Fuse: if both present β*S_sentences+(1-β)*S_chunks; else use whichever exists
+        - z-score per index → sigmoid to [0,1]
+        - Sentences: MaxP + saturation (top-m)
+        - Chunks: MaxP
+        - Fuse: if both present β*S_sentences+(1-β)*S_chunks; else use whichever exists
         """
         alpha = settings.HYBRID_ALPHA
         lam   = settings.HYBRID_LAMBDA
         beta  = settings.HYBRID_BETA
         mcap  = getattr(settings, "HYBRID_PER_PAGE_SENTENCES", settings.HYBRID_PER_PAGE_LINES)
-        cap   = settings.HYBRID_MAX_TOTAL_HITS
+        
+        # ✅ FIX: Guard against invalid cap values
+        cap = int(getattr(settings, "HYBRID_MAX_TOTAL_HITS", 600))
+        if cap <= 0:
+            logger.warning(f"[SCORE] Invalid HYBRID_MAX_TOTAL_HITS={cap}, using default 600")
+            cap = 600
 
         # Cap hits for perf
-        sentence_hits  = sentence_hits[:cap]
+        sentence_hits = sentence_hits[:cap]
         chunk_hits = chunk_hits[:cap]
 
         # Normalize → bound
-        sentence_hits  = _zscore_normalize(sentence_hits, "score")
+        sentence_hits = _zscore_normalize(sentence_hits, "score")
         chunk_hits = _zscore_normalize(chunk_hits, "score")
-        for h in sentence_hits:  h.score_bounded  = _sigmoid(getattr(h, "score_z", 0.0))
-        for h in chunk_hits: h.score_bounded  = _sigmoid(getattr(h, "score_z", 0.0))
+        for h in sentence_hits:  h.score_bounded = _sigmoid(getattr(h, "score_z", 0.0))
+        for h in chunk_hits: h.score_bounded = _sigmoid(getattr(h, "score_z", 0.0))
 
-        # Group by (doc,page)
-        sentences_by_page  = defaultdict(list)
+        # Group by (doc,page) - EXISTING LOGIC ALREADY HANDLES BOTH KEYS
+        sentences_by_page = defaultdict(list)
         for h in sentence_hits:
             doc_id = getattr(h, "document_id", None)
             page_idx = getattr(h, "page_index", None)
@@ -825,10 +875,10 @@ class RAGService(IRAGService):
 
         ranked = []
         for (doc_id, page_idx) in pages:
-            S = sorted((h.score_bounded for h in sentences_by_page[(doc_id, page_idx)]),  reverse=True)
+            S = sorted((h.score_bounded for h in sentences_by_page[(doc_id, page_idx)]), reverse=True)
             C = sorted((h.score_bounded for h in chunks_by_page[(doc_id, page_idx)]), reverse=True)
 
-            S_sentences  = _saturating_sum(S, alpha, lam, mcap) if S else 0.0
+            S_sentences = _saturating_sum(S, alpha, lam, mcap) if S else 0.0
             S_chunks = C[0] if C else 0.0
 
             if S_sentences == 0.0 and S_chunks == 0.0:
@@ -846,7 +896,7 @@ class RAGService(IRAGService):
                 "score": S_page,
                 "source": source,
                 "evidence": {
-                    "sentences":  sentences_by_page[(doc_id, page_idx)],
+                    "sentences": sentences_by_page[(doc_id, page_idx)],
                     "chunks": chunks_by_page[(doc_id, page_idx)],
                 }
             })
@@ -940,9 +990,10 @@ class RAGService(IRAGService):
     async def clear_all(self) -> bool:
         """Clear all documents, vectors, chat history, and page images."""
         try:
+            # 1) List docs (used to delete original uploaded files)
             docs = await self.document_repo.list_all()
 
-            # Delete originals (best-effort)
+            # 2) Delete original files (best-effort)
             for d in docs:
                 stored_filename = d.metadata.get("stored_filename") if d.metadata else None
                 if stored_filename:
@@ -951,35 +1002,69 @@ class RAGService(IRAGService):
                     except Exception as e:
                         logger.warning(f"Delete original failed: {e}")
 
-            # Remove entire page_images tree
+            # 3) Remove entire page_images tree
             base = Path(settings.UPLOADS_DIR) / "page_images"
             try:
                 await asyncio.to_thread(shutil.rmtree, base, ignore_errors=True)
             except Exception as e:
                 logger.warning(f"Failed to remove page_images dir: {e}")
 
-            # Clear vectors, DB, and chat history
+            # 4) Clear vector stores (chunks + sentences + lines if available)
             ok = await self.vector_store.clear()
+            if self.sentence_vector_store:
+                try:
+                    ok = ok and await self.sentence_vector_store.clear()
+                except Exception as e:
+                    logger.warning(f"Sentence vector store clear failed: {e}")
+            if getattr(self, "line_vector_store", None):
+                try:
+                    ok = ok and await self.line_vector_store.clear()
+                except Exception as e:
+                    logger.warning(f"Line vector store clear failed: {e}")
+
+            # 5) Clear DB documents and chat history
             ok = ok and await self.document_repo.delete_all()
             ok = ok and await self.message_repo.clear_history()
+
             return ok
         except Exception as e:
             logger.error(f"Clear all failed: {e}")
             return False
-    
+
     async def get_status(self) -> Dict[str, Any]:
-        """Get system status"""
-        import asyncio
-        documents, chunk_count = await asyncio.gather(
-            self.document_repo.list_all(),
-            self.vector_store.count()
-        )
-        
+        """
+        Return lightweight service status for readiness checks and UI.
+        - ready_for_queries: True if at least one chunk vector exists
+        - chunk_count: number of chunk vectors
+        - sentence_count: number of sentence vectors (if store enabled)
+        - document_count: number of DB records (list_all, not .count())
+        """
+        try:
+            chunk_count = await self.vector_store.count()
+        except Exception:
+            chunk_count = 0
+
+        sentence_count = 0
+        if getattr(self, "sentence_vector_store", None):
+            try:
+                sentence_count = await self.sentence_vector_store.count()
+            except Exception:
+                sentence_count = 0
+
+        # SQLDocumentRepository has no `.count()`: use list_all() and len()
+        try:
+            docs = await self.document_repo.list_all()
+            document_count = len(docs)
+        except Exception:
+            document_count = 0
+
         return {
-            "document_loaded": ", ".join([d.filename for d in documents]) if documents else None,
-            "chunks_available": chunk_count,
-            "ready_for_queries": len(documents) > 0
+            "ready_for_queries": chunk_count > 0,
+            "chunk_count": chunk_count,
+            "sentence_count": sentence_count,
+            "document_count": document_count,
         }
+
     
 
     # ============ DEBUG & TROUBLESHOOTNG ============
@@ -1095,6 +1180,23 @@ class RAGService(IRAGService):
                 self.retrieve_sentences(query, getattr(settings, "HYBRID_TOP_SENTENCES", settings.HYBRID_TOP_LINES)),
                 self.retrieve_chunks(query, settings.HYBRID_TOP_CHUNKS)
             )
+
+            print(f" Sentence Hits = {len(sentence_hits)}")
+            print(f" Chunks Hits = {len(chunk_hits)}")
+
+            # # After retrieval, before page grouping
+            # print("Sample sentence hit:", sentence_hits[0])  # Should show: {doc_id, page_index, line_ids, score}
+            # print("Sample chunk hit:", chunk_hits[0])
+
+            # # Check grouping
+            # from collections import defaultdict
+            # page_groups = defaultdict(list)
+            # for hit in sentence_hits + chunk_hits:
+            #     key = (hit.get('doc_id'), hit.get('page_index'))
+            #     page_groups[key].append(hit)
+                
+            # print(f"Unique pages found: {len(page_groups)}")
+            # print(f"Sample page key: {list(page_groups.keys())[0]}")
 
             if not sentence_hits and not chunk_hits:
                 logger.info(f"[HYBRID-SEARCH] No hits for query: {query[:60]}")

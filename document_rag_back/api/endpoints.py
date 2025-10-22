@@ -150,6 +150,8 @@ async def search_pages_endpoint(
 
     pages: List[PageSearchResult] = await rag_service.search_pages(chat_request.question, top_k=settings.TOP_K)
 
+    print(f" The number of found pages = {len(pages)}")
+
     base_url = str(request.base_url).rstrip("/")
     results: List[PageSearchResultItem] = []
 
