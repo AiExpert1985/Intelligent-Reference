@@ -98,8 +98,13 @@ class Settings(BaseSettings):
 
     # Logging
     LOGGER_NAME: str = "alfahras"
-    DEBUG_SEARCH_DUMPS: bool = False
+
+    # Debug artefacts
+    DEBUG_OCR_DUMPS: bool = True
+    DEBUG_OCR_DIR: str = "debug_ocr"
+    DEBUG_SEARCH_DUMPS: bool = True
     DEBUG_SEARCH_JSON: bool = False
+    DEBUG_SEARCH_DIR: str = "debug_search"
     DEBUG_SEARCH_MAX_ITEMS: int = 10
 
     # Highlight preview feature flags / params

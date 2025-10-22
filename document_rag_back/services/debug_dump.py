@@ -32,7 +32,7 @@ class SearchDebugDump:
         if not chunks:
             return
         directory = Path(self._config.ocr_dir)
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         out = directory / f"{filename}.txt"
         with out.open("w", encoding="utf-8") as fh:
             fh.write(f"Total chunks: {len(chunks)}\n")
@@ -49,7 +49,7 @@ class SearchDebugDump:
         if not sentences:
             return
         directory = Path(self._config.ocr_dir)
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         out = directory / f"{filename}_sentences.txt"
         with out.open("w", encoding="utf-8") as fh:
             fh.write(f"Total sentences: {len(sentences)}\n")
@@ -72,7 +72,7 @@ class SearchDebugDump:
         if total_lines == 0:
             return
         directory = Path(self._config.ocr_dir)
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         out = directory / f"{filename}_lines.txt"
 
         def _page_sort(page_key: str) -> Any:
@@ -111,7 +111,7 @@ class SearchDebugDump:
         max_items: Optional[int] = None,
     ) -> None:
         directory = Path(self._config.search_dir)
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         out = directory / f"search_{ts}.txt"
         max_list = max_items or self._config.search_max_items
@@ -200,7 +200,7 @@ class SearchDebugDump:
         max_items: Optional[int] = None,
     ) -> None:
         directory = Path(self._config.search_dir)
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_query = re.sub(r"[^\w\-\u0600-\u06FF]+", "_", query).strip("_")[:80] or "query"
         out = directory / f"search_{safe_query}_{ts}.json"

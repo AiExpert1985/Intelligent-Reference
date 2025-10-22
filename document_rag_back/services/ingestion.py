@@ -46,6 +46,7 @@ class IngestionConfig:
     uploads_dir: str
     line_exclude_band: float
     line_min_chars: int
+    debug_dumps_enabled: bool = False
 
 
 class DocumentIngestion:
@@ -307,7 +308,7 @@ class DocumentIngestion:
                 }
             )
 
-        if self._debug_dump:
+        if self._config.debug_dumps_enabled and self._debug_dump:
             self._debug_dump.save_chunks(chunks, document.filename)
         return chunks, geometry_by_page
 
@@ -355,7 +356,7 @@ class DocumentIngestion:
                 }
             )
 
-        if self._debug_dump:
+        if self._config.debug_dumps_enabled and self._debug_dump:
             self._debug_dump.save_chunks(chunks, document.filename)
         return chunks, geometry_by_page
 
@@ -425,7 +426,7 @@ class DocumentIngestion:
             logger.warning("No sentences extracted for %s", document.filename)
             return
 
-        if self._debug_dump:
+        if self._config.debug_dumps_enabled and self._debug_dump:
             self._debug_dump.save_sentences(sentence_chunks, document.filename)
 
         texts = [chunk.content for chunk in sentence_chunks]
@@ -486,7 +487,7 @@ class DocumentIngestion:
         metadata["lines"] = lines_meta
         document.metadata = metadata
         await repo.update_metadata(document.id, metadata)
-        if self._debug_dump:
+        if self._config.debug_dumps_enabled and self._debug_dump:
             self._debug_dump.save_lines(lines_meta, document.filename)
 
     async def _cleanup_on_failure(
