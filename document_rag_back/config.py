@@ -98,6 +98,9 @@ class Settings(BaseSettings):
 
     # Logging
     LOGGER_NAME: str = "alfahras"
+    DEBUG_SEARCH_DUMPS: bool = False
+    DEBUG_SEARCH_JSON: bool = False
+    DEBUG_SEARCH_MAX_ITEMS: int = 10
 
     # Highlight preview feature flags / params
     ENABLE_HIGHLIGHT_PREVIEW: bool = True

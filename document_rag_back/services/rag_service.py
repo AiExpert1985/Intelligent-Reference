@@ -895,6 +895,10 @@ class RAGService(IRAGService):
                 "page_index": page_idx,
                 "score": S_page,
                 "source": source,
+                "components": {
+                    "S_sentences": S_sentences,
+                    "S_chunks": S_chunks,
+                },
                 "evidence": {
                     "sentences": sentences_by_page[(doc_id, page_idx)],
                     "chunks": chunks_by_page[(doc_id, page_idx)],
@@ -1169,6 +1173,242 @@ class RAGService(IRAGService):
 
 
 
+    async def _build_doc_cache(self, ranked_pages) -> Dict[str, Any]:
+        """Batch-fetch documents referenced by the ranked pages (async + cached)."""
+        try:
+            doc_ids = {pg["document_id"] for pg in ranked_pages if pg.get("document_id")}
+            doc_ids_list = list(doc_ids)
+            tasks = [self.document_repo.get_by_id(doc_id) for doc_id in doc_ids_list]
+            docs = await asyncio.gather(*tasks, return_exceptions=True)
+            cache: Dict[str, Any] = {}
+            for doc_id, doc in zip(doc_ids_list, docs):
+                if isinstance(doc, Exception) or doc is None:
+                    continue
+                cache[doc_id] = doc
+            return cache
+        except Exception:
+            return {}
+
+    def _save_search_debug(
+        self,
+        query: str,
+        sentence_hits,
+        chunk_hits,
+        ranked_pages,
+        doc_cache: Dict[str, Any],
+        max_list: int = 10,
+    ) -> None:
+        """Persist detailed search evidence as a human-readable text file."""
+        try:
+            from pathlib import Path
+            import datetime as _dt
+            import re
+
+            dbg_dir = Path("debug_search")
+            dbg_dir.mkdir(exist_ok=True)
+
+            ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+            q_safe = re.sub(r"[^\w\-\u0600-\u06FF]+", "_", query).strip("_")[:80] or "query"
+            out = dbg_dir / f"{ts}_{q_safe}.txt"
+
+            def _snip(t: str, n: int = 260) -> str:
+                if not t:
+                    return ""
+                t = t.replace("\n", " ").strip()
+                return t if len(t) <= n else (t[:n] + "…")
+
+            with out.open("w", encoding="utf-8") as f:
+                f.write("SEARCH DEBUG DUMP\n")
+                f.write(f"Timestamp: {ts}\n")
+                f.write(f"Query: {query}\n")
+                f.write("=" * 80 + "\n\n")
+
+                # SENTENCES
+                f.write(f"SENTENCE HITS (total={len(sentence_hits)}, showing top {max_list}):\n")
+                f.write("-" * 80 + "\n\n")
+                for i, h in enumerate(sentence_hits[:max_list], 1):
+                    ch = getattr(h, "chunk", None)
+                    meta = getattr(ch, "metadata", {}) if ch else {}
+                    doc_id = getattr(ch, "document_id", None) or meta.get("document_id")
+                    page = meta.get("page_index") or meta.get("page")
+
+                    f.write(f"[{i}] Sentence Hit\n")
+                    f.write(f"    Document: {doc_id}\n")
+                    f.write(f"    Page: {page}\n")
+                    f.write(f"    Score (raw): {getattr(h,'score',0.0):.4f}\n")
+                    f.write(f"    Score (bounded): {getattr(h,'score_bounded',0.0)}\n")
+                    f.write(f"    Line IDs: {meta.get('line_ids', [])}\n")
+                    f.write(f"    Text: {_snip(getattr(ch,'content',''))}\n\n")
+
+                # CHUNKS
+                f.write(f"CHUNK HITS (total={len(chunk_hits)}, showing top {max_list}):\n")
+                f.write("-" * 80 + "\n\n")
+                for i, h in enumerate(chunk_hits[:max_list], 1):
+                    ch = getattr(h, "chunk", None)
+                    meta = getattr(ch, "metadata", {}) if ch else {}
+                    doc_id = getattr(ch, "document_id", None) or meta.get("document_id")
+                    page = meta.get("page")
+
+                    f.write(f"[{i}] Chunk Hit\n")
+                    f.write(f"    Document: {doc_id}\n")
+                    f.write(f"    Page: {page}\n")
+                    f.write(f"    Score (raw): {getattr(h,'score',0.0):.4f}\n")
+                    f.write(f"    Score (bounded): {getattr(h,'score_bounded',0.0)}\n")
+                    f.write(f"    Line IDs: {meta.get('line_ids', [])}\n")
+                    f.write(f"    Text: {_snip(getattr(ch,'content',''))}\n\n")
+
+                # PAGES
+                f.write(f"RANKED PAGES (total={len(ranked_pages)}, showing top {max_list}):\n")
+                f.write("-" * 80 + "\n\n")
+                for i, pg in enumerate(ranked_pages[:max_list], 1):
+                    doc_id = pg["document_id"]
+                    page = pg["page_index"]
+                    comp = pg.get("components", {})
+                    S_s = comp.get("S_sentences", 0.0)
+                    S_c = comp.get("S_chunks", 0.0)
+                    f.write(f"[{i}] Page Rank\n")
+                    f.write(f"    Document: {doc_id}\n")
+                    f.write(f"    Page: {page}\n")
+                    f.write(f"    Score (total): {pg['score']:.4f}\n")
+                    f.write(f"    Score (sentences): {S_s:.4f}\n")
+                    f.write(f"    Score (chunks): {S_c:.4f}\n")
+                    f.write(f"    Source: {pg['source']}\n")
+
+                    sent_ev = pg["evidence"]["sentences"]
+                    chunk_ev = pg["evidence"]["chunks"]
+
+                    line_ids = self._extract_line_ids_from_sentences(sent_ev)
+                    if not line_ids:
+                        line_ids = self._select_line_ids_for_token(chunk_ev)
+                    f.write(f"    Selected Line IDs: {line_ids}\n")
+
+                    line_texts = {}
+                    doc = doc_cache.get(doc_id)
+                    if doc and doc.metadata:
+                        page_lines = (doc.metadata.get("lines") or {}).get(str(page), [])
+                        by_id = {ln.get("line_id"): ln.get("text", "") for ln in page_lines}
+                        line_texts = {lid: by_id.get(lid, "") for lid in line_ids}
+
+                    if line_texts:
+                        f.write("    Highlighted Line Texts:\n")
+                        for lid, txt in line_texts.items():
+                            f.write(f"        {lid}: {_snip(txt)}\n")
+
+                    def _hinfo(h):
+                        ch_ = getattr(h, "chunk", None)
+                        m_ = getattr(ch_, "metadata", {}) if ch_ else {}
+                        txt = _snip(getattr(ch_, "content", ""))
+                        sc = getattr(h, "score", 0.0)
+                        bd = getattr(h, "score_bounded", 0.0)
+                        pg_ = m_.get("page_index") or m_.get("page")
+                        return f"score={sc:.4f} bounded={bd} page={pg_} | {txt}"
+
+                    if sent_ev:
+                        f.write("    Top Sentence Evidence:\n")
+                        for h in sent_ev[:3]:
+                            f.write("        " + _hinfo(h) + "\n")
+                    if chunk_ev:
+                        f.write("    Top Chunk Evidence:\n")
+                        for h in chunk_ev[:3]:
+                            f.write("        " + _hinfo(h) + "\n")
+                    f.write("\n")
+
+            logger.info(f"[DEBUG-SEARCH] Wrote text dump → {out}")
+        except Exception as e:
+            logger.warning(f"[DEBUG-SEARCH] Failed writing text dump: {e}")
+
+    def _save_search_debug_json(
+        self,
+        query: str,
+        sentence_hits,
+        chunk_hits,
+        ranked_pages,
+        doc_cache: Dict[str, Any],
+        max_items: int = 10,
+    ) -> None:
+        """Export search evidence as JSON for automated analysis."""
+        try:
+            from pathlib import Path
+            import datetime as _dt
+            import json
+            import re
+
+            dbg_dir = Path("debug_search")
+            dbg_dir.mkdir(exist_ok=True)
+
+            ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+            q_safe = re.sub(r"[^\w\-\u0600-\u06FF]+", "_", query).strip("_")[:80] or "query"
+            out = dbg_dir / f"{ts}_{q_safe}.json"
+
+            def serialize_hit(h):
+                ch = getattr(h, "chunk", None)
+                meta = getattr(ch, "metadata", {}) if ch else {}
+                return {
+                    "document_id": getattr(ch, "document_id", None) or meta.get("document_id"),
+                    "page": meta.get("page_index") or meta.get("page"),
+                    "score_raw": float(getattr(h, "score", 0.0)),
+                    "score_bounded": float(getattr(h, "score_bounded", 0.0)),
+                    "line_ids": meta.get("line_ids", []),
+                    "content": (getattr(ch, "content", "") or "")[:500],
+                }
+
+            data = {
+                "timestamp": ts,
+                "query": query,
+                "sentence_hits": {
+                    "total": len(sentence_hits),
+                    "items": [serialize_hit(h) for h in sentence_hits[:max_items]],
+                },
+                "chunk_hits": {
+                    "total": len(chunk_hits),
+                    "items": [serialize_hit(h) for h in chunk_hits[:max_items]],
+                },
+                "ranked_pages": [],
+            }
+
+            for pg in ranked_pages[:max_items]:
+                doc_id = pg["document_id"]
+                page = pg["page_index"]
+                comp = pg.get("components", {})
+
+                sent_ev = pg["evidence"]["sentences"]
+                chunk_ev = pg["evidence"]["chunks"]
+                line_ids = self._extract_line_ids_from_sentences(sent_ev) or self._select_line_ids_for_token(chunk_ev)
+
+                line_texts = {}
+                doc = doc_cache.get(doc_id)
+                if doc and doc.metadata:
+                    page_lines = (doc.metadata.get("lines") or {}).get(str(page), [])
+                    by_id = {ln.get("line_id"): ln.get("text", "") for ln in page_lines}
+                    line_texts = {lid: by_id.get(lid, "") for lid in line_ids}
+
+                page_data = {
+                    "rank": len(data["ranked_pages"]) + 1,
+                    "document_id": doc_id,
+                    "page": page,
+                    "scores": {
+                        "total": float(pg["score"]),
+                        "sentences": float(comp.get("S_sentences", 0.0)),
+                        "chunks": float(comp.get("S_chunks", 0.0)),
+                    },
+                    "source": pg["source"],
+                    "line_ids": line_ids,
+                    "line_texts": line_texts,
+                    "evidence": {
+                        "sentences": [serialize_hit(h) for h in sent_ev[:3]],
+                        "chunks": [serialize_hit(h) for h in chunk_ev[:3]],
+                    },
+                }
+                data["ranked_pages"].append(page_data)
+
+            with out.open("w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+
+            logger.info(f"[DEBUG-SEARCH] Wrote JSON dump → {out}")
+        except Exception as e:
+            logger.warning(f"[DEBUG-SEARCH] Failed writing JSON dump: {e}")
+
+
     async def search_pages(self, query: str, top_k: int = 5) -> List[PageSearchResult]:
         """
         Hybrid search: lines + chunks → score pages → build UI-ready results
@@ -1275,6 +1515,33 @@ class RAGService(IRAGService):
                     download_url=f"/download/{doc_id}",
                     highlight_token=highlight_token,
                 ))
+
+            if getattr(settings, "DEBUG_SEARCH_DUMPS", False):
+                try:
+                    doc_cache = await self._build_doc_cache(ranked_pages)
+
+                    await asyncio.to_thread(
+                        self._save_search_debug,
+                        query,
+                        sentence_hits,
+                        chunk_hits,
+                        ranked_pages,
+                        doc_cache,
+                        getattr(settings, "DEBUG_SEARCH_MAX_ITEMS", 10),
+                    )
+
+                    if getattr(settings, "DEBUG_SEARCH_JSON", False):
+                        await asyncio.to_thread(
+                            self._save_search_debug_json,
+                            query,
+                            sentence_hits,
+                            chunk_hits,
+                            ranked_pages,
+                            doc_cache,
+                            getattr(settings, "DEBUG_SEARCH_MAX_ITEMS", 10),
+                        )
+                except Exception as _e:
+                    logger.warning(f"[DEBUG-SEARCH] Dump failed: {_e}")
             return results
 
         except Exception as e:
