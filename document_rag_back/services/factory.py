@@ -15,7 +15,13 @@ from infrastructure.vector_stores import ChromaDBVectorStore
 from infrastructure.embedding_services import SentenceTransformerEmbedding
 from infrastructure.repositories import SQLDocumentRepository, SQLMessageRepository
 from infrastructure.file_storage import LocalFileStorage
-from services.rag_service import RAGService
+from services.debug_dump import DebugDumpConfig, SearchDebugDump
+from services.highlighter import Highlighter, HighlighterConfig
+from services.ingestion import DocumentIngestion, IngestionConfig
+from services.housekeeping import Housekeeping, HousekeepingConfig
+from services.retriever import Retriever, RetrievalConfig
+from services.scorer import Scorer, ScoringConfig
+from services.rag_service import HybridSearchConfig, RAGService
 from services.document_processor_factory import DocumentProcessorFactory
 
 from infrastructure.reranker import CrossEncoderReranker
@@ -91,23 +97,103 @@ def get_reranker() -> Optional[IReranker]:
 
 def get_rag_service(
     vector_store: IVectorStore = Depends(get_vector_store),
-    line_vector_store: IVectorStore = Depends(get_line_vector_store),  # << ADD THIS LINE
+    line_vector_store: IVectorStore = Depends(get_line_vector_store),
     sentence_vector_store: IVectorStore = Depends(get_sentence_vector_store),
     embedding_service: IEmbeddingService = Depends(get_embedding_service),
     doc_processor_factory: DocumentProcessorFactory = Depends(get_document_processor_factory),
     file_storage: IFileStorage = Depends(get_file_storage),
     document_repo: IDocumentRepository = Depends(get_document_repository),
     message_repo: IMessageRepository = Depends(get_message_repository),
-    reranker: IReranker = Depends(get_reranker)
+    reranker: IReranker = Depends(get_reranker),
 ) -> IRAGService:
-    return RAGService(
+    debug_dump = SearchDebugDump(
+        DebugDumpConfig(search_max_items=settings.DEBUG_SEARCH_MAX_ITEMS)
+    )
+
+    scorer = Scorer(
+        ScoringConfig(
+            alpha=settings.HYBRID_ALPHA,
+            lam=settings.HYBRID_LAMBDA,
+            beta=settings.HYBRID_BETA,
+            per_page_sentence_cap=settings.HYBRID_PER_PAGE_SENTENCES,
+            max_total_hits=settings.HYBRID_MAX_TOTAL_HITS,
+            telemetry_enabled=settings.ENABLE_HYBRID_TELEMETRY,
+        )
+    )
+
+    highlighter = Highlighter(
+        HighlighterConfig(
+            score_threshold=settings.HIGHLIGHT_SCORE_THRESHOLD,
+            max_regions=settings.HIGHLIGHT_MAX_REGIONS,
+        )
+    )
+
+    retriever = Retriever(
+        embedding_service=embedding_service,
+        chunk_store=vector_store,
+        document_repo=document_repo,
+        message_repo=message_repo,
+        config=RetrievalConfig(
+            retrieval_timeout_sec=settings.HYBRID_RETRIEVAL_TIMEOUT_SEC,
+            search_candidate_k=settings.SEARCH_CANDIDATE_K,
+            search_score_threshold=settings.SEARCH_SCORE_THRESHOLD,
+            lexical_gate_enabled=settings.LEXICAL_GATE_ENABLED,
+            lexical_min_keywords=settings.LEXICAL_MIN_KEYWORDS,
+            rerank_enabled=settings.RERANK_ENABLED,
+            rerank_threshold=settings.RERANK_SCORE_THRESHOLD,
+            rerank_gate_low=settings.RERANK_GATE_LOW,
+            rerank_gate_high=settings.RERANK_GATE_HIGH,
+            rerank_candidate_cap=settings.RERANK_CANDIDATE_CAP,
+            line_min_chars=settings.LINE_MIN_CHARS,
+        ),
+        sentence_store=sentence_vector_store,
+        line_store=line_vector_store,
+        reranker=reranker,
+    )
+
+    ingestion = DocumentIngestion(
         vector_store=vector_store,
-        line_vector_store=line_vector_store,  # << ADD THIS LINE
         sentence_vector_store=sentence_vector_store,
-        doc_processor_factory=doc_processor_factory,
         embedding_service=embedding_service,
         file_storage=file_storage,
         document_repo=document_repo,
+        processor_factory=doc_processor_factory,
+        debug_dump=debug_dump,
+        config=IngestionConfig(
+            uploads_dir=settings.UPLOADS_DIR,
+            line_exclude_band=settings.LINE_EXCLUDE_HEADER_FOOTER_BAND,
+            line_min_chars=settings.LINE_MIN_CHARS,
+        ),
+    )
+
+    housekeeping = Housekeeping(
+        document_repo=document_repo,
         message_repo=message_repo,
-        reranker=reranker
+        file_storage=file_storage,
+        chunk_store=vector_store,
+        config=HousekeepingConfig(uploads_dir=settings.UPLOADS_DIR),
+        sentence_store=sentence_vector_store,
+        line_store=line_vector_store,
+    )
+
+    service_config = HybridSearchConfig(
+        sentence_top_k=settings.HYBRID_TOP_SENTENCES,
+        sentence_fallback_top_k=settings.HYBRID_TOP_LINES,
+        chunk_top_k=settings.HYBRID_TOP_CHUNKS,
+        highlight_preview_enabled=settings.ENABLE_HIGHLIGHT_PREVIEW,
+        highlight_style_id=settings.HIGHLIGHT_STYLE_ID,
+        highlight_telemetry_enabled=settings.ENABLE_HYBRID_TELEMETRY,
+        debug_text_enabled=settings.DEBUG_SEARCH_DUMPS,
+        debug_json_enabled=settings.DEBUG_SEARCH_JSON,
+        debug_max_items=settings.DEBUG_SEARCH_MAX_ITEMS,
+    )
+
+    return RAGService(
+        retriever=retriever,
+        scorer=scorer,
+        highlighter=highlighter,
+        ingestion=ingestion,
+        housekeeping=housekeeping,
+        search_debug_dump=debug_dump,
+        config=service_config,
     )
