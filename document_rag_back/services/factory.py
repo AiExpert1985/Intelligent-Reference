@@ -106,9 +106,11 @@ def get_rag_service(
     message_repo: IMessageRepository = Depends(get_message_repository),
     reranker: IReranker = Depends(get_reranker),
 ) -> IRAGService:
-    debug_dump = SearchDebugDump(
-        DebugDumpConfig(search_max_items=settings.DEBUG_SEARCH_MAX_ITEMS)
-    )
+    debug_dump: Optional[SearchDebugDump] = None
+    if settings.DEBUG_SEARCH_DUMPS or settings.DEBUG_SEARCH_JSON:
+        debug_dump = SearchDebugDump(
+            DebugDumpConfig(search_max_items=settings.DEBUG_SEARCH_MAX_ITEMS)
+        )
 
     scorer = Scorer(
         ScoringConfig(
@@ -158,12 +160,12 @@ def get_rag_service(
         file_storage=file_storage,
         document_repo=document_repo,
         processor_factory=doc_processor_factory,
-        debug_dump=debug_dump,
         config=IngestionConfig(
             uploads_dir=settings.UPLOADS_DIR,
             line_exclude_band=settings.LINE_EXCLUDE_HEADER_FOOTER_BAND,
             line_min_chars=settings.LINE_MIN_CHARS,
         ),
+        debug_dump=debug_dump,
     )
 
     housekeeping = Housekeeping(

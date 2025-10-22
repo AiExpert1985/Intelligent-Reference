@@ -59,8 +59,8 @@ class DocumentIngestion:
         file_storage: IFileStorage,
         document_repo: IDocumentRepository,
         processor_factory: DocumentProcessorFactory,
-        debug_dump: SearchDebugDump,
         config: IngestionConfig,
+        debug_dump: Optional[SearchDebugDump] = None,
     ) -> None:
         self._vector_store = vector_store
         self._sentence_store = sentence_vector_store
@@ -307,7 +307,8 @@ class DocumentIngestion:
                 }
             )
 
-        self._debug_dump.save_chunks(chunks, document.filename)
+        if self._debug_dump:
+            self._debug_dump.save_chunks(chunks, document.filename)
         return chunks, geometry_by_page
 
     async def _extract_text_chunks_with_fallback(
@@ -354,7 +355,8 @@ class DocumentIngestion:
                 }
             )
 
-        self._debug_dump.save_chunks(chunks, document.filename)
+        if self._debug_dump:
+            self._debug_dump.save_chunks(chunks, document.filename)
         return chunks, geometry_by_page
 
     async def _generate_embeddings(
@@ -423,7 +425,8 @@ class DocumentIngestion:
             logger.warning("No sentences extracted for %s", document.filename)
             return
 
-        self._debug_dump.save_sentences(sentence_chunks, document.filename)
+        if self._debug_dump:
+            self._debug_dump.save_sentences(sentence_chunks, document.filename)
 
         texts = [chunk.content for chunk in sentence_chunks]
         embeddings = await self._embedding_service.generate_embeddings(texts)
@@ -483,7 +486,8 @@ class DocumentIngestion:
         metadata["lines"] = lines_meta
         document.metadata = metadata
         await repo.update_metadata(document.id, metadata)
-        self._debug_dump.save_lines(lines_meta, document.filename)
+        if self._debug_dump:
+            self._debug_dump.save_lines(lines_meta, document.filename)
 
     async def _cleanup_on_failure(
         self,

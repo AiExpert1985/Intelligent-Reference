@@ -12,6 +12,7 @@ from fastapi import Request
 from pydantic import HttpUrl
 
 from api.schemas import DocumentsListItem
+from core.domain import ProcessedDocument
 from core.interfaces import (
     IDocumentRepository,
     IFileStorage,
@@ -113,7 +114,7 @@ class Housekeeping:
             "path": stored_filename,
         }
 
-    async def get_document(self, document_id: str):
+    async def get_document(self, document_id: str) -> Optional[ProcessedDocument]:
         return await self._documents.get_by_id(document_id)
 
     async def clear_all(self) -> bool:

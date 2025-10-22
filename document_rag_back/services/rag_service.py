@@ -4,12 +4,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from fastapi import Request, UploadFile
 
 from api.schemas import DocumentsListItem, ProcessDocumentResponse
-from core.domain import PageSearchResult
+from core.domain import ChunkSearchResult, PageSearchResult
 from core.interfaces import IRAGService
 from services.debug_dump import SearchDebugDump
 from services.highlighter import Highlighter
@@ -68,13 +68,13 @@ class RAGService(IRAGService):
     async def list_documents(self, request: Request) -> List[DocumentsListItem]:
         return await self._housekeeping.list_documents(request)
 
-    async def get_document_with_path(self, document_id: str):
+    async def get_document_with_path(self, document_id: str) -> Optional[Dict[str, str]]:
         return await self._housekeeping.get_document_with_path(document_id)
 
-    async def get_status(self) -> dict:
+    async def get_status(self) -> Dict[str, Any]:
         return await self._housekeeping.get_status()
 
-    async def search_chunks(self, query: str, top_k: int = 5):
+    async def search_chunks(self, query: str, top_k: int = 5) -> List[ChunkSearchResult]:
         return await self._retriever.search_chunks(query, top_k)
 
     async def search_pages(self, query: str, top_k: int = 5) -> List[PageSearchResult]:
@@ -107,12 +107,26 @@ class RAGService(IRAGService):
                 continue
 
             metadata = document.metadata or {}
-            page_images = metadata.get("page_image_paths", {})
+            page_images = metadata.get("page_image_paths", {}) or {}
+            page_thumbnails = metadata.get("page_thumbnail_paths", {}) or {}
+            image_key: Any = page_idx
             if str(page_idx) in page_images:
+                image_key = str(page_idx)
+            elif page_idx in page_images:
+                image_key = page_idx
+            if image_key in page_images:
                 image_url = f"/page-image/{doc_id}/{page_idx}"
-                thumbnail_url = f"/page-image/{doc_id}/{page_idx}?size=thumbnail"
             else:
                 image_url = ""
+
+            thumb_key: Any = page_idx
+            if str(page_idx) in page_thumbnails:
+                thumb_key = str(page_idx)
+            elif page_idx in page_thumbnails:
+                thumb_key = page_idx
+            if thumb_key in page_thumbnails:
+                thumbnail_url = f"/page-image/{doc_id}/{page_idx}?size=thumbnail"
+            else:
                 thumbnail_url = ""
 
             chunk_evidence = page_data["evidence"]["chunks"]
@@ -194,7 +208,7 @@ class RAGService(IRAGService):
     async def search(self, query: str, top_k: int = 5) -> List[PageSearchResult]:
         return await self.search_pages(query, top_k)
 
-    async def _build_doc_cache(self, ranked_pages):
+    async def _build_doc_cache(self, ranked_pages: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         doc_ids = sorted({page["document_id"] for page in ranked_pages if page.get("document_id")})
         tasks = [self._housekeeping.get_document(doc_id) for doc_id in doc_ids]
         docs = await asyncio.gather(*tasks, return_exceptions=True)
