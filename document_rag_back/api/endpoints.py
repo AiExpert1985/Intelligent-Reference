@@ -395,8 +395,8 @@ async def get_page_image(
     if not validate_document_id(document_id):
         raise HTTPException(status_code=422, detail="Invalid document ID format")
 
-    # Confirm doc exists (same behavior as before)
-    doc = await rag_service.document_repo.get_by_id(document_id)
+    # Confirm doc exists using service API (repo is encapsulated)
+    doc = await rag_service.get_document_with_path(document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
