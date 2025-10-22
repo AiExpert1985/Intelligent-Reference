@@ -107,9 +107,13 @@ def get_rag_service(
     reranker: IReranker = Depends(get_reranker),
 ) -> IRAGService:
     debug_dump: Optional[SearchDebugDump] = None
-    if settings.DEBUG_SEARCH_DUMPS or settings.DEBUG_SEARCH_JSON:
+    if settings.DEBUG_OCR_DUMPS or settings.DEBUG_SEARCH_DUMPS or settings.DEBUG_SEARCH_JSON:
         debug_dump = SearchDebugDump(
-            DebugDumpConfig(search_max_items=settings.DEBUG_SEARCH_MAX_ITEMS)
+            DebugDumpConfig(
+                ocr_dir=settings.DEBUG_OCR_DIR,
+                search_dir=settings.DEBUG_SEARCH_DIR,
+                search_max_items=settings.DEBUG_SEARCH_MAX_ITEMS,
+            )
         )
 
     scorer = Scorer(
@@ -164,6 +168,7 @@ def get_rag_service(
             uploads_dir=settings.UPLOADS_DIR,
             line_exclude_band=settings.LINE_EXCLUDE_HEADER_FOOTER_BAND,
             line_min_chars=settings.LINE_MIN_CHARS,
+            debug_dumps_enabled=settings.DEBUG_OCR_DUMPS,
         ),
         debug_dump=debug_dump,
     )
