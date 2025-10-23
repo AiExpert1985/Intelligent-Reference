@@ -74,6 +74,7 @@ yarn-error.log*
 **/*.tmp
 **/temp/
 **/debug_ocr/
+**/debug_search/
 **/migrate_working_dir/
 
 # ===========================

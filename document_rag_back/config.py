@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # PDF processing method selection
     PDF_PROCESSING_METHOD: str = "ocr"
-    OCR_ENGINE: str = "easyocr" # Options: tesseract, easyocr, paddleocr
+    OCR_ENGINE: str = "tesseract" # Options: tesseract, easyocr, paddleocr
     OCR_DPI: int = 300
     OCR_LANGUAGES: List[str] = ["ar", "en"]
     
