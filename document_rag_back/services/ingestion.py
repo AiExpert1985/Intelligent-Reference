@@ -72,6 +72,7 @@ class DocumentIngestion:
         self._debug_dump = debug_dump
         self._config = config
 
+    #* Hamandi
     async def process_document(self, file: UploadFile) -> ProcessDocumentResponse:
         doc_id: Optional[str] = None
         try:

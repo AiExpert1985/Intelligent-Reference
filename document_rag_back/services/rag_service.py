@@ -56,6 +56,7 @@ class RAGService(IRAGService):
         self._debug_dump = search_debug_dump
         self._config = config
 
+    #* Hamandi
     async def process_document(self, file: UploadFile) -> ProcessDocumentResponse:
         return await self._ingestion.process_document(file)
 

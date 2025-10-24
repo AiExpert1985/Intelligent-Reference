@@ -30,7 +30,6 @@ from config import settings
 import os
 from pathlib import Path
 from typing import List, Dict, Literal
-from utils.highlight_token import sign
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 from fastapi.responses import FileResponse
@@ -49,7 +48,7 @@ from api.schemas import (
     PageSearchResultItem,
     ProcessingProgress,
 )
-from utils.common import validate_document_id
+from utils.common import _safe_file_path, validate_document_id
 from infrastructure.progress_store import progress_store
 import logging
 
@@ -58,23 +57,8 @@ logger = logging.getLogger(settings.LOGGER_NAME)
 router = APIRouter()
 
 
-# ---------- Helper: Safe file path join (prevents path traversal) ----------
-def _safe_file_path(base_dir: str, relative_path: str) -> Path:
-    """
-    Safely join base directory with relative path.
-    Ensures resolved path stays within base directory.
-    """
-    base = Path(base_dir).resolve()
-    full = (base / relative_path).resolve()
-    try:
-        full.relative_to(base)
-    except ValueError:
-        # Escaped the base dir -> block
-        raise HTTPException(status_code=400, detail="Invalid file path")
-    return full
-
-
 # ---------- Upload ----------
+#* Hamandi
 @router.post("/upload-document", response_model=ProcessDocumentResponse)
 async def upload_document(
     file: UploadFile = File(...),
