@@ -190,8 +190,6 @@ class DocumentIngestion:
                     chunks, geometry_by_page = await self._extract_text_chunks_with_fallback(
                         file_path, file_type, document, doc_id
                     )
-                temp_print(f"Chunk Sample: {chunks[0]}")
-                temp_print(f"metadata: {chunks[0].metadata}")
 
                 for chunk in chunks:
                     page = int(chunk.metadata.get("page", 0))
