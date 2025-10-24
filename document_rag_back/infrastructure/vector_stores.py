@@ -2,8 +2,8 @@
 """Concrete implementations of vector stores"""
 import asyncio
 import logging
-from typing import List, Optional
-from typing import Any
+from typing import Any, List, Optional
+
 import chromadb
 
 from core.interfaces import IVectorStore, DocumentChunk
@@ -15,6 +15,9 @@ logger = logging.getLogger(settings.LOGGER_NAME)
 
 class ChromaDBVectorStore(IVectorStore):
     """ChromaDB implementation with normalized cosine similarity scoring (0-1 scale)"""
+
+    _LIST_METADATA_KEYS = {"line_ids"}
+    _LIST_DELIMITER = "|"
     
     def __init__(self, client: Any, collection_name: str = "rag_chunks"):
         self._client = client
@@ -38,7 +41,7 @@ class ChromaDBVectorStore(IVectorStore):
                 return True
                 
             texts = [chunk.content for chunk in chunks]
-            metadatas = [chunk.metadata for chunk in chunks]
+            metadatas = [self._serialize_metadata(chunk.metadata) for chunk in chunks]
             ids = [chunk.id for chunk in chunks]
             embeddings = [chunk.embedding for chunk in chunks if chunk.embedding]
             
@@ -95,11 +98,12 @@ class ChromaDBVectorStore(IVectorStore):
                     similarity = max(0.0, min(1.0, similarity))
                     # ============= END: Unified Similarity Scoring =============
                     
+                    metadata = self._deserialize_metadata(results['metadatas'][0][i] or {})
                     chunk = DocumentChunk(
                         id=results['ids'][0][i],
                         content=results['documents'][0][i],
-                        document_id=results['metadatas'][0][i].get('document_id'),
-                        metadata=results['metadatas'][0][i]
+                        document_id=metadata.get('document_id'),
+                        metadata=metadata
                     )
                     search_results.append(ChunkSearchResult(chunk=chunk, score=similarity))
             
@@ -143,3 +147,45 @@ class ChromaDBVectorStore(IVectorStore):
         except Exception as e:
             logger.error(f"Failed to get count: {e}")
             return 0
+
+    def _serialize_metadata(self, metadata: Optional[dict]) -> dict:
+        if not metadata:
+            return {}
+
+        serialized = {}
+        for key, value in metadata.items():
+            serialized[key] = self._serialize_value(key, value)
+        return serialized
+
+    def _serialize_value(self, key: str, value: Any) -> Any:
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+
+        if key in self._LIST_METADATA_KEYS and isinstance(value, (list, tuple, set)):
+            normalized = [str(item) for item in value if item is not None]
+            return self._LIST_DELIMITER.join(normalized)
+
+        if isinstance(value, (list, tuple, set)):
+            normalized = [str(item) for item in value if item is not None]
+            return self._LIST_DELIMITER.join(normalized)
+
+        # Fallback to string representation to avoid insertion failures
+        return str(value)
+
+    def _deserialize_metadata(self, metadata: dict) -> dict:
+        if not metadata:
+            return {}
+
+        deserialized = {}
+        for key, value in metadata.items():
+            if (
+                key in self._LIST_METADATA_KEYS
+                and isinstance(value, str)
+            ):
+                parts = [item for item in value.split(self._LIST_DELIMITER) if item]
+                deserialized[key] = parts
+                continue
+
+            deserialized[key] = value
+
+        return deserialized
