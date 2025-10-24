@@ -77,6 +77,9 @@ class DocumentIngestion:
         doc_id: Optional[str] = None
         try:
             file_hash, doc_id, stored_name, _ = await self._validate_and_prepare(file)
+            print(file_hash)
+            print(doc_id)
+            print(stored_name)
             assert file.filename is not None
 
             progress_store.start(doc_id, file.filename)
@@ -227,6 +230,7 @@ class DocumentIngestion:
                     doc_repo,
                 )
 
+    #* Hamandi
     async def _validate_and_prepare(self, file: UploadFile) -> Tuple[str, str, str, bytes]:
         if not file.filename:
             raise DocumentProcessingError(

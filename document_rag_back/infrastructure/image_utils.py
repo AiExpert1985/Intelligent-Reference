@@ -77,7 +77,7 @@ class ImageProcessor:
                 f"thumbnail={thumb_kb:.0f}KB (saved {orig_kb - thumb_kb:.0f}KB)"
             )
         except Exception as e:
-            logger.debug(f"[IMAGE] stat() failed for {filename_base}: {e}")
+            logger.error(f"[IMAGE] stat() failed for {filename_base}: {e}")
 
         return str(original_path), str(thumb_path)
 

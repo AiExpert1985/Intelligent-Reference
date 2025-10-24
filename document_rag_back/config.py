@@ -98,6 +98,7 @@ class Settings(BaseSettings):
 
     # Logging
     LOGGER_NAME: str = "alfahras"
+    LOG_LEVEL: str = "WARNING"
 
     # Debug artefacts
     DEBUG_OCR_DUMPS: bool = True
@@ -150,9 +151,5 @@ class Settings(BaseSettings):
 
     # Telemetry
     ENABLE_HYBRID_TELEMETRY: bool = True
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 settings = Settings()

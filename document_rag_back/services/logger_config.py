@@ -15,7 +15,7 @@ def setup_logging():
     if logger.hasHandlers():
         logger.handlers.clear()
 
-    logger.setLevel(logging.INFO)  # Set the minimum level to process
+    logger.setLevel(getattr(logging, settings.LOG_LEVEL))  # Set the minimum level to process
 
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s'
@@ -34,12 +34,12 @@ def setup_logging():
             backupCount=5
         )
         file_handler.setFormatter(formatter)
-        logger.setLevel(logging.DEBUG)  # Log INFO and above to the file
+        logger.setLevel(getattr(logging, settings.LOG_LEVEL)) 
         logger.addHandler(file_handler)
     except Exception as e:
         print(f"Error setting up file logger: {e}")
 
-    logger.propagate = True
+    logger.propagate = False
 
     # Console Handler: For immediate feedback during development.
     console_handler = logging.StreamHandler()

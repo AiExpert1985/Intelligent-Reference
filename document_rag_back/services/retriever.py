@@ -61,7 +61,7 @@ class Retriever:
         self, query: str, top_k: int
     ) -> List[ChunkSearchResult]:
         if self._sentence_store is None:
-            logger.debug("Sentence vector store not configured")
+            logger.warning("Sentence vector store not configured")
             return []
 
         embedding = await self._embedding.generate_query_embedding(query)

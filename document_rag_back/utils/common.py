@@ -36,6 +36,7 @@ def get_log_file_path() -> str:
 
 # ============= File Validation =============
 
+#* Hamandi
 def validate_uploaded_file(file: UploadFile) -> None:
     """Validate file name, type, and size. Raises HTTPException on failure."""
     from config import settings  # Lazy import
@@ -75,6 +76,7 @@ def validate_file_content(file_path: str, filename: str) -> None:
 
 # ============= File Utilities =============
 
+#* Hamandi
 def get_file_hash(content: bytes) -> str:
     """Calculates the SHA256 hash of file content."""
     return hashlib.sha256(content).hexdigest()
