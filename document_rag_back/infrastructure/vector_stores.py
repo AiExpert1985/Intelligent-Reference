@@ -1,9 +1,10 @@
 # infrastructure/vector_stores.py
 """Concrete implementations of vector stores"""
 import asyncio
+import json
 import logging
-from typing import List, Optional
-from typing import Any
+from typing import Any, Dict, Iterable, List
+
 import chromadb
 
 from core.interfaces import IVectorStore, DocumentChunk
@@ -29,19 +30,58 @@ class ChromaDBVectorStore(IVectorStore):
                 name=self._collection_name
             )
     
+    def _prepare_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure metadata values conform to Chroma's allowed scalar types."""
+        safe_metadata: Dict[str, Any] = {}
+        serialized_keys: List[str] = []
+
+        for key, value in metadata.items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                safe_metadata[key] = value
+                continue
+
+            try:
+                safe_metadata[key] = json.dumps(value)
+                serialized_keys.append(key)
+            except TypeError:
+                safe_metadata[key] = str(value)
+                serialized_keys.append(key)
+
+        if serialized_keys:
+            safe_metadata["__serialized_keys"] = ",".join(serialized_keys)
+
+        return safe_metadata
+
+    def _prepare_metadatas(self, metadatas: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [self._prepare_metadata(dict(metadata)) for metadata in metadatas]
+
+    def _restore_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        serialized_keys = metadata.pop("__serialized_keys", "")
+        if serialized_keys:
+            for key in filter(None, serialized_keys.split(",")):
+                value = metadata.get(key)
+                if isinstance(value, str):
+                    try:
+                        metadata[key] = json.loads(value)
+                    except json.JSONDecodeError:
+                        pass
+        return metadata
+
     async def add_chunks(self, chunks: List[DocumentChunk]) -> bool:
         """Add chunks to ChromaDB"""
         try:
             await self._ensure_collection()
-            
+
             if not chunks:
                 return True
-                
+
             texts = [chunk.content for chunk in chunks]
-            metadatas = [chunk.metadata for chunk in chunks]
+            metadatas = self._prepare_metadatas(
+                (chunk.metadata or {}) for chunk in chunks
+            )
             ids = [chunk.id for chunk in chunks]
             embeddings = [chunk.embedding for chunk in chunks if chunk.embedding]
-            
+
             await asyncio.to_thread(
                 self._collection.add,
                 documents=texts,
@@ -95,11 +135,13 @@ class ChromaDBVectorStore(IVectorStore):
                     similarity = max(0.0, min(1.0, similarity))
                     # ============= END: Unified Similarity Scoring =============
                     
+                    metadata = self._restore_metadata(dict(results['metadatas'][0][i]))
+
                     chunk = DocumentChunk(
                         id=results['ids'][0][i],
                         content=results['documents'][0][i],
-                        document_id=results['metadatas'][0][i].get('document_id'),
-                        metadata=results['metadatas'][0][i]
+                        document_id=metadata.get('document_id'),
+                        metadata=metadata
                     )
                     search_results.append(ChunkSearchResult(chunk=chunk, score=similarity))
             
