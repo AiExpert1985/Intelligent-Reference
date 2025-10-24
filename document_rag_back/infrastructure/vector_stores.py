@@ -100,7 +100,7 @@ class ChromaDBVectorStore(IVectorStore):
                     chunk = DocumentChunk(
                         id=results['ids'][0][i],
                         content=results['documents'][0][i],
-                        document_id=metadata.get('document_id'),
+                        document_id=str(metadata.get('document_id') or ""),
                         metadata=metadata
                     )
                     search_results.append(ChunkSearchResult(chunk=chunk, score=similarity))
