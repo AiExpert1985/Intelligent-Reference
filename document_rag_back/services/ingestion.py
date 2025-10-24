@@ -34,6 +34,7 @@ from utils.common import (
     get_file_extension,
     get_file_hash,
     sanitize_filename,
+    temp_print,
     validate_file_content,
     validate_uploaded_file,
 )
@@ -72,14 +73,10 @@ class DocumentIngestion:
         self._debug_dump = debug_dump
         self._config = config
 
-    #* Hamandi
     async def process_document(self, file: UploadFile) -> ProcessDocumentResponse:
         doc_id: Optional[str] = None
         try:
             file_hash, doc_id, stored_name, _ = await self._validate_and_prepare(file)
-            print(file_hash)
-            print(doc_id)
-            print(stored_name)
             assert file.filename is not None
 
             progress_store.start(doc_id, file.filename)
@@ -188,11 +185,12 @@ class DocumentIngestion:
                         file_path, file_type, document, doc_id
                     )
                 except RuntimeError as error:
-                    logger.warning("[PROCESS] Primary OCR failed: %s", error)
-                    logger.info("[PROCESS] Attempting OCR fallback for %s", filename)
+                    logger.error(f"[PROCESS] Attempting OCR fallback for {filename}")
                     chunks, geometry_by_page = await self._extract_text_chunks_with_fallback(
                         file_path, file_type, document, doc_id
                     )
+                temp_print(f"Chunk Sample: {chunks[0]}")
+                temp_print(f"metadata: {chunks[0].metadata}")
 
                 for chunk in chunks:
                     page = int(chunk.metadata.get("page", 0))
@@ -230,7 +228,6 @@ class DocumentIngestion:
                     doc_repo,
                 )
 
-    #* Hamandi
     async def _validate_and_prepare(self, file: UploadFile) -> Tuple[str, str, str, bytes]:
         if not file.filename:
             raise DocumentProcessingError(
