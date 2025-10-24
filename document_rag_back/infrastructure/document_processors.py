@@ -325,7 +325,9 @@ class BaseOCRProcessor(IDocumentProcessor):
                     "sentence_id": f"p{page_index}_s{idx}",
                     "text": text,
                     "page_index": page_index,
-                    "line_ids": _unique_preserve_order(line_ids),
+                    "line_ids": serialize_metadata_list(
+                        _unique_preserve_order(line_ids)
+                    ),
                 }
             )
 
