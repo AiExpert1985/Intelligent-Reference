@@ -114,3 +114,8 @@ def _safe_file_path(base_dir: str, relative_path: str) -> Path:
         # Escaped the base dir -> block
         raise HTTPException(status_code=400, detail="Invalid file path")
     return full
+
+
+# temporary print for debugging purpose, used for my to learn & test code
+def temp_print(message) -> None:
+    print(f"Temp print ======> {message}")
