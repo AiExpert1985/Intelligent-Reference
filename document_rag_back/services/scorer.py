@@ -5,7 +5,7 @@ import logging
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence
+from typing import Iterable, List, Sequence, TypedDict
 
 from core.domain import ChunkSearchResult
 
@@ -22,6 +22,29 @@ class ScoringConfig:
     telemetry_enabled: bool = False
 
 
+class PageScoreComponents(TypedDict):
+    S_sentences: float
+    S_chunks: float
+
+
+class PageScoreEvidence(TypedDict):
+    sentences: List[ChunkSearchResult]
+    chunks: List[ChunkSearchResult]
+
+
+class RankedPageBase(TypedDict):
+    document_id: str
+    page_index: int
+    score: float
+    source: str
+    components: PageScoreComponents
+    evidence: PageScoreEvidence
+
+
+class RankedPage(RankedPageBase, total=False):
+    highlights: List[str]
+
+
 class Scorer:
     """Fuse sentence and chunk evidence into ranked page results."""
 
@@ -33,7 +56,7 @@ class Scorer:
         query: str,
         sentence_hits: Sequence[ChunkSearchResult],
         chunk_hits: Sequence[ChunkSearchResult],
-    ) -> List[Dict[str, object]]:
+    ) -> List[RankedPage]:
         _ = query  # reserved for future telemetry hooks
         cap = max(1, self._config.max_total_hits)
         sentence_hits = list(sentence_hits[:cap])
@@ -56,15 +79,16 @@ class Scorer:
 
             chunk = getattr(hit, "chunk", None)
             if chunk is not None:
-                doc_id = doc_id or getattr(chunk, "document_id", None) or chunk.metadata.get("document_id")
+                metadata = chunk.metadata or {}
+                doc_id = doc_id or getattr(chunk, "document_id", None) or metadata.get("document_id")
                 if page_idx is None:
                     page_idx = (
-                        chunk.metadata.get("page_index")
-                        or chunk.metadata.get("page")
-                        or chunk.metadata.get("page_number")
+                        metadata.get("page_index")
+                        or metadata.get("page")
+                        or metadata.get("page_number")
                     )
 
-            if doc_id is None or page_idx is None:
+            if not isinstance(doc_id, str) or page_idx is None:
                 continue
 
             try:
@@ -79,8 +103,11 @@ class Scorer:
             chunk = getattr(hit, "chunk", None)
             if chunk is None:
                 continue
-            doc_id = getattr(chunk, "document_id", None) or chunk.metadata.get("document_id")
-            page_idx = chunk.metadata.get("page")
+            metadata = chunk.metadata or {}
+            doc_id = getattr(chunk, "document_id", None) or metadata.get("document_id")
+            if not isinstance(doc_id, str):
+                continue
+            page_idx = metadata.get("page")
             try:
                 page_idx_int = int(page_idx)
             except (TypeError, ValueError):
@@ -89,7 +116,7 @@ class Scorer:
 
         pages = set(sentences_by_page.keys()) | set(chunks_by_page.keys())
 
-        ranked: List[Dict[str, object]] = []
+        ranked: List[RankedPage] = []
         for doc_id, page_idx in pages:
             sentence_scores = sorted(
                 (getattr(hit, "score_bounded", 0.0) for hit in sentences_by_page[(doc_id, page_idx)]),

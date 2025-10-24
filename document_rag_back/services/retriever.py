@@ -129,12 +129,16 @@ class Retriever:
 
             existing_ids: Set[str] = set()
             if raw_results:
-                doc_ids = {
-                    getattr(res.chunk, "document_id", None)
-                    for res in raw_results
-                    if res and getattr(res, "chunk", None)
-                }
-                doc_ids.discard(None)
+                doc_ids: Set[str] = set()
+                for res in raw_results:
+                    chunk = getattr(res, "chunk", None)
+                    if chunk is None:
+                        continue
+                    metadata_obj = getattr(chunk, "metadata", None)
+                    metadata = metadata_obj if isinstance(metadata_obj, dict) else {}
+                    doc_id_value = getattr(chunk, "document_id", None) or metadata.get("document_id")
+                    if isinstance(doc_id_value, str):
+                        doc_ids.add(doc_id_value)
                 if doc_ids:
                     existing_ids = await self._document_repo.exists_bulk(list(doc_ids))
 
@@ -143,7 +147,8 @@ class Retriever:
             for res in raw_results:
                 if not res or not getattr(res, "chunk", None):
                     continue
-                metadata = getattr(res.chunk, "metadata", {}) or {}
+                metadata_obj = getattr(res.chunk, "metadata", None)
+                metadata = metadata_obj if isinstance(metadata_obj, dict) else {}
                 doc_id = getattr(res.chunk, "document_id", None) or metadata.get("document_id")
                 if doc_id in existing_ids and res.score >= threshold:
                     filtered.append(res)
@@ -200,9 +205,10 @@ class Retriever:
             chunk = getattr(hit, "chunk", None)
             if chunk is None:
                 continue
-            metadata = getattr(chunk, "metadata", {}) or {}
+            metadata_obj = getattr(chunk, "metadata", None)
+            metadata = metadata_obj if isinstance(metadata_obj, dict) else {}
             doc_id = getattr(chunk, "document_id", None) or metadata.get("document_id")
-            if doc_id:
+            if isinstance(doc_id, str):
                 doc_ids.add(doc_id)
 
         if not doc_ids:
@@ -214,9 +220,10 @@ class Retriever:
             chunk = getattr(hit, "chunk", None)
             if chunk is None:
                 continue
-            metadata = getattr(chunk, "metadata", {}) or {}
+            metadata_obj = getattr(chunk, "metadata", None)
+            metadata = metadata_obj if isinstance(metadata_obj, dict) else {}
             doc_id = getattr(chunk, "document_id", None) or metadata.get("document_id")
-            if doc_id in existing:
+            if isinstance(doc_id, str) and doc_id in existing:
                 filtered.append(hit)
 
         dropped = len(doc_ids) - len(existing)
