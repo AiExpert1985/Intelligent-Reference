@@ -133,9 +133,6 @@ class ChromaDBVectorStore(IVectorStore):
             )
             self._collection = None
             return True
-        except chromadb.errors.NotFoundError:
-            self._collection = None
-            return True
         except ValueError as e:
             if "does not exist" in str(e).lower():
                 self._collection = None
