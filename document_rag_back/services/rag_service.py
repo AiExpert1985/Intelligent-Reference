@@ -9,14 +9,14 @@ from typing import Any, Dict, List, Optional, Sequence
 from fastapi import Request, UploadFile
 
 from api.schemas import DocumentsListItem, ProcessDocumentResponse
-from core.domain import ChunkSearchResult, PageSearchResult
+from core.domain import ChunkSearchResult, PageSearchResult, ProcessedDocument
 from core.interfaces import IRAGService
 from services.debug_dump import SearchDebugDump
 from services.highlighter import Highlighter
 from services.ingestion import DocumentIngestion
 from services.housekeeping import Housekeeping
 from services.retriever import Retriever
-from services.scorer import Scorer
+from services.scorer import RankedPage, Scorer
 from utils.highlight_token import sign
 
 logger = logging.getLogger(__name__)
@@ -96,8 +96,8 @@ class RAGService(IRAGService):
 
         results: List[PageSearchResult] = []
         for page_data in ranked_pages[:top_k]:
-            doc_id = page_data["document_id"]
-            page_idx = page_data["page_index"]
+            doc_id: str = page_data["document_id"]
+            page_idx: int = page_data["page_index"]
             if page_idx == 0:
                 logger.warning("[SEARCH-PAGES] Normalized page_idx from 0 to 1 for doc=%s", doc_id)
                 page_idx = 1
@@ -129,8 +129,8 @@ class RAGService(IRAGService):
             else:
                 thumbnail_url = ""
 
-            chunk_evidence = page_data["evidence"]["chunks"]
-            sentence_evidence = page_data["evidence"]["sentences"]
+            chunk_evidence: Sequence[ChunkSearchResult] = page_data["evidence"]["chunks"]
+            sentence_evidence: Sequence[ChunkSearchResult] = page_data["evidence"]["sentences"]
             highlights = []
             for hit in chunk_evidence[:3]:
                 text = getattr(hit.chunk, "content", "") if getattr(hit, "chunk", None) else ""
@@ -180,13 +180,14 @@ class RAGService(IRAGService):
         if self._debug_dump and (self._config.debug_text_enabled or self._config.debug_json_enabled):
             try:
                 doc_cache = await self._build_doc_cache(ranked_pages)
+                debug_ranked_pages = [dict(page) for page in ranked_pages]
                 if self._config.debug_text_enabled:
                     await asyncio.to_thread(
                         self._debug_dump.write_search_text,
                         query,
                         sentence_hits,
                         chunk_hits,
-                        ranked_pages,
+                        debug_ranked_pages,
                         doc_cache,
                         self._config.debug_max_items,
                     )
@@ -196,7 +197,7 @@ class RAGService(IRAGService):
                         query,
                         sentence_hits,
                         chunk_hits,
-                        ranked_pages,
+                        debug_ranked_pages,
                         doc_cache,
                         self._config.debug_max_items,
                     )
@@ -208,13 +209,19 @@ class RAGService(IRAGService):
     async def search(self, query: str, top_k: int = 5) -> List[PageSearchResult]:
         return await self.search_pages(query, top_k)
 
-    async def _build_doc_cache(self, ranked_pages: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-        doc_ids = sorted({page["document_id"] for page in ranked_pages if page.get("document_id")})
+    async def _build_doc_cache(self, ranked_pages: Sequence[RankedPage]) -> Dict[str, ProcessedDocument]:
+        doc_ids = sorted(
+            {
+                doc_id
+                for doc_id in (page.get("document_id") for page in ranked_pages)
+                if isinstance(doc_id, str)
+            }
+        )
         tasks = [self._housekeeping.get_document(doc_id) for doc_id in doc_ids]
         docs = await asyncio.gather(*tasks, return_exceptions=True)
-        cache = {}
+        cache: Dict[str, ProcessedDocument] = {}
         for doc_id, doc in zip(doc_ids, docs):
-            if isinstance(doc, Exception) or doc is None:
+            if isinstance(doc, BaseException) or doc is None:
                 continue
             cache[doc_id] = doc
         return cache

@@ -7,11 +7,19 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from core.domain import DocumentChunk
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_metadata(obj: Any) -> Dict[str, Any]:
+    if isinstance(obj, dict):
+        return obj
+    if isinstance(obj, Mapping):
+        return dict(obj)
+    return {}
 
 
 @dataclass
@@ -130,7 +138,7 @@ class SearchDebugDump:
             fh.write("-" * 80 + "\n\n")
             for index, hit in enumerate(sentence_hits[:max_list], 1):
                 chunk = getattr(hit, "chunk", None)
-                metadata = getattr(chunk, "metadata", {}) if chunk else {}
+                metadata = _coerce_metadata(getattr(chunk, "metadata", None)) if chunk else {}
                 doc_id = getattr(chunk, "document_id", None) or metadata.get("document_id")
                 page = metadata.get("page_index") or metadata.get("page")
                 fh.write(f"[{index}] Sentence Hit\n")
@@ -145,7 +153,7 @@ class SearchDebugDump:
             fh.write("-" * 80 + "\n\n")
             for index, hit in enumerate(chunk_hits[:max_list], 1):
                 chunk = getattr(hit, "chunk", None)
-                metadata = getattr(chunk, "metadata", {}) if chunk else {}
+                metadata = _coerce_metadata(getattr(chunk, "metadata", None)) if chunk else {}
                 doc_id = getattr(chunk, "document_id", None) or metadata.get("document_id")
                 page = metadata.get("page")
                 fh.write(f"[{index}] Chunk Hit\n")
@@ -176,9 +184,10 @@ class SearchDebugDump:
                 fh.write(f"    Sentence evidence: {len(sentence_ev)} hits\n")
                 fh.write(f"    Chunk evidence: {len(chunk_ev)} hits\n")
 
-                doc = doc_cache.get(doc_id)
-                if doc and getattr(doc, "metadata", None):
-                    page_lines = (doc.metadata.get("lines") or {}).get(str(page_index), [])
+                doc = doc_cache.get(doc_id) if isinstance(doc_id, str) else None
+                if doc:
+                    doc_metadata = _coerce_metadata(getattr(doc, "metadata", None))
+                    page_lines = (doc_metadata.get("lines") or {}).get(str(page_index), [])
                     by_id = {ln.get("line_id"): ln.get("text", "") for ln in page_lines}
                     selected = page.get("highlights", []) or []
                     if selected:
@@ -210,7 +219,7 @@ class SearchDebugDump:
             serialized: List[Dict[str, Any]] = []
             for hit in hits[:max_list]:
                 chunk = getattr(hit, "chunk", None)
-                metadata = getattr(chunk, "metadata", {}) if chunk else {}
+                metadata = _coerce_metadata(getattr(chunk, "metadata", None)) if chunk else {}
                 serialized.append(
                     {
                         "score": getattr(hit, "score", 0.0),
@@ -233,10 +242,11 @@ class SearchDebugDump:
         for page in ranked_pages[:max_list]:
             doc_id = page.get("document_id")
             page_index = page.get("page_index")
-            doc = doc_cache.get(doc_id)
-            lines = []
-            if doc and getattr(doc, "metadata", None):
-                page_lines = (doc.metadata.get("lines") or {}).get(str(page_index), [])
+            doc = doc_cache.get(doc_id) if isinstance(doc_id, str) else None
+            lines: List[Dict[str, Any]] = []
+            if doc:
+                doc_metadata = _coerce_metadata(getattr(doc, "metadata", None))
+                page_lines = (doc_metadata.get("lines") or {}).get(str(page_index), [])
                 lines = [
                     {
                         "line_id": ln.get("line_id"),
