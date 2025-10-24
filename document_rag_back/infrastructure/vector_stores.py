@@ -2,8 +2,8 @@
 """Concrete implementations of vector stores"""
 import asyncio
 import logging
-from typing import List, Optional
-from typing import Any
+from typing import Any, List
+
 import chromadb
 
 from core.interfaces import IVectorStore, DocumentChunk
@@ -12,6 +12,7 @@ from core.domain import ChunkSearchResult
 from config import settings
 
 logger = logging.getLogger(settings.LOGGER_NAME)
+
 
 class ChromaDBVectorStore(IVectorStore):
     """ChromaDB implementation with normalized cosine similarity scoring (0-1 scale)"""
@@ -38,7 +39,7 @@ class ChromaDBVectorStore(IVectorStore):
                 return True
                 
             texts = [chunk.content for chunk in chunks]
-            metadatas = [chunk.metadata for chunk in chunks]
+            metadatas = [chunk.metadata or {} for chunk in chunks]
             ids = [chunk.id for chunk in chunks]
             embeddings = [chunk.embedding for chunk in chunks if chunk.embedding]
             
@@ -95,11 +96,12 @@ class ChromaDBVectorStore(IVectorStore):
                     similarity = max(0.0, min(1.0, similarity))
                     # ============= END: Unified Similarity Scoring =============
                     
+                    metadata = results['metadatas'][0][i] or {}
                     chunk = DocumentChunk(
                         id=results['ids'][0][i],
                         content=results['documents'][0][i],
-                        document_id=results['metadatas'][0][i].get('document_id'),
-                        metadata=results['metadatas'][0][i]
+                        document_id=str(metadata.get('document_id') or ""),
+                        metadata=metadata
                     )
                     search_results.append(ChunkSearchResult(chunk=chunk, score=similarity))
             
@@ -143,3 +145,4 @@ class ChromaDBVectorStore(IVectorStore):
         except Exception as e:
             logger.error(f"Failed to get count: {e}")
             return 0
+
