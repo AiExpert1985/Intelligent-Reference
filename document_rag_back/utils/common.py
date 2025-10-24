@@ -96,3 +96,19 @@ def sanitize_filename(filename: str) -> str:
 def get_file_extension(filename: str) -> str:
     """Extracts and normalizes the file extension from a filename."""
     return Path(filename).suffix[1:].lower()
+
+
+# ---------- Helper: Safe file path join (prevents path traversal) ----------
+def _safe_file_path(base_dir: str, relative_path: str) -> Path:
+    """
+    Safely join base directory with relative path.
+    Ensures resolved path stays within base directory.
+    """
+    base = Path(base_dir).resolve()
+    full = (base / relative_path).resolve()
+    try:
+        full.relative_to(base)
+    except ValueError:
+        # Escaped the base dir -> block
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    return full
