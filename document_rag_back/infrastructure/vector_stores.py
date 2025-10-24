@@ -133,6 +133,15 @@ class ChromaDBVectorStore(IVectorStore):
             )
             self._collection = None
             return True
+        except chromadb.errors.NotFoundError:
+            self._collection = None
+            return True
+        except ValueError as e:
+            if "does not exist" in str(e).lower():
+                self._collection = None
+                return True
+            logger.error(f"Failed to clear collection: {e}")
+            return False
         except Exception as e:
             logger.error(f"Failed to clear collection: {e}")
             return False
