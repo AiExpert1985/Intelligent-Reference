@@ -5,7 +5,7 @@ import logging
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence, TypedDict
+from typing import Iterable, List, Optional, Sequence, TypedDict
 
 from core.domain import ChunkSearchResult
 
@@ -75,25 +75,29 @@ class Scorer:
         sentences_by_page = defaultdict(list)
         for hit in sentence_hits:
             doc_id = getattr(hit, "document_id", None)
-            page_idx = getattr(hit, "page_index", None)
+            page_idx_value = getattr(hit, "page_index", None)
 
             chunk = getattr(hit, "chunk", None)
             if chunk is not None:
-                metadata = chunk.metadata or {}
+                metadata_obj = getattr(chunk, "metadata", None)
+                metadata: dict[str, object]
+                if isinstance(metadata_obj, dict):
+                    metadata = metadata_obj
+                else:
+                    metadata = {}
                 doc_id = doc_id or getattr(chunk, "document_id", None) or metadata.get("document_id")
-                if page_idx is None:
-                    page_idx = (
+                if page_idx_value is None:
+                    page_idx_value = (
                         metadata.get("page_index")
                         or metadata.get("page")
                         or metadata.get("page_number")
                     )
 
-            if not isinstance(doc_id, str) or page_idx is None:
+            if not isinstance(doc_id, str):
                 continue
 
-            try:
-                page_idx_int = int(page_idx)
-            except (TypeError, ValueError):
+            page_idx_int = self._parse_page_index(page_idx_value)
+            if page_idx_int is None:
                 continue
 
             sentences_by_page[(doc_id, page_idx_int)].append(hit)
@@ -103,14 +107,18 @@ class Scorer:
             chunk = getattr(hit, "chunk", None)
             if chunk is None:
                 continue
-            metadata = chunk.metadata or {}
+            metadata_obj = getattr(chunk, "metadata", None)
+            metadata: dict[str, object]
+            if isinstance(metadata_obj, dict):
+                metadata = metadata_obj
+            else:
+                metadata = {}
             doc_id = getattr(chunk, "document_id", None) or metadata.get("document_id")
             if not isinstance(doc_id, str):
                 continue
-            page_idx = metadata.get("page")
-            try:
-                page_idx_int = int(page_idx)
-            except (TypeError, ValueError):
+            page_idx_value = metadata.get("page")
+            page_idx_int = self._parse_page_index(page_idx_value)
+            if page_idx_int is None:
                 continue
             chunks_by_page[(doc_id, page_idx_int)].append(hit)
 
@@ -222,3 +230,25 @@ class Scorer:
         tail = scores_desc[1:cap]
         sat = sum(score * (alpha ** idx) for idx, score in enumerate(tail, start=1))
         return s1 + lam * sat
+
+    @staticmethod
+    def _parse_page_index(value: object) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            if value.is_integer():
+                return int(value)
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            try:
+                return int(stripped)
+            except ValueError:
+                return None
+        return None
