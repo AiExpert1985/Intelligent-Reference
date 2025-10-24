@@ -181,13 +181,14 @@ class RAGService(IRAGService):
         if self._debug_dump and (self._config.debug_text_enabled or self._config.debug_json_enabled):
             try:
                 doc_cache = await self._build_doc_cache(ranked_pages)
+                debug_ranked_pages = [dict(page) for page in ranked_pages]
                 if self._config.debug_text_enabled:
                     await asyncio.to_thread(
                         self._debug_dump.write_search_text,
                         query,
                         sentence_hits,
                         chunk_hits,
-                        ranked_pages,
+                        debug_ranked_pages,
                         doc_cache,
                         self._config.debug_max_items,
                     )
@@ -197,7 +198,7 @@ class RAGService(IRAGService):
                         query,
                         sentence_hits,
                         chunk_hits,
-                        ranked_pages,
+                        debug_ranked_pages,
                         doc_cache,
                         self._config.debug_max_items,
                     )
@@ -210,12 +211,18 @@ class RAGService(IRAGService):
         return await self.search_pages(query, top_k)
 
     async def _build_doc_cache(self, ranked_pages: Sequence[RankedPage]) -> Dict[str, ProcessedDocument]:
-        doc_ids = sorted({page["document_id"] for page in ranked_pages if page.get("document_id")})
+        doc_ids = sorted(
+            {
+                doc_id
+                for doc_id in (page.get("document_id") for page in ranked_pages)
+                if isinstance(doc_id, str)
+            }
+        )
         tasks = [self._housekeeping.get_document(doc_id) for doc_id in doc_ids]
         docs = await asyncio.gather(*tasks, return_exceptions=True)
         cache: Dict[str, ProcessedDocument] = {}
         for doc_id, doc in zip(doc_ids, docs):
-            if isinstance(doc, Exception) or doc is None:
+            if isinstance(doc, BaseException) or doc is None:
                 continue
             cache[doc_id] = doc
         return cache

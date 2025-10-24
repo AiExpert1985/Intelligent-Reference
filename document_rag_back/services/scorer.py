@@ -189,16 +189,21 @@ class Scorer:
         items = list(items)
         if not items:
             return
-        values = [float(getattr(item, score_attr, 0.0) or 0.0) for item in items]
+        def _extract_value(obj: object) -> float:
+            raw = getattr(obj, score_attr, 0.0)
+            if isinstance(raw, (int, float)):
+                return float(raw)
+            return 0.0
+
+        values = [_extract_value(item) for item in items]
         if len(values) < 2:
-            for item in items:
-                setattr(item, "score_z", float(getattr(item, score_attr, 0.0) or 0.0))
+            for item, value in zip(items, values):
+                setattr(item, "score_z", value)
             return
         mean = sum(values) / len(values)
         variance = sum((value - mean) ** 2 for value in values) / len(values)
         std = math.sqrt(max(variance, 1e-12))
-        for item in items:
-            value = float(getattr(item, score_attr, 0.0) or 0.0)
+        for item, value in zip(items, values):
             setattr(item, "score_z", (value - mean) / std)
 
     @staticmethod

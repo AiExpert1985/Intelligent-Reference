@@ -184,7 +184,7 @@ class SearchDebugDump:
                 fh.write(f"    Sentence evidence: {len(sentence_ev)} hits\n")
                 fh.write(f"    Chunk evidence: {len(chunk_ev)} hits\n")
 
-                doc = doc_cache.get(doc_id)
+                doc = doc_cache.get(doc_id) if isinstance(doc_id, str) else None
                 if doc:
                     doc_metadata = _coerce_metadata(getattr(doc, "metadata", None))
                     page_lines = (doc_metadata.get("lines") or {}).get(str(page_index), [])
@@ -242,7 +242,7 @@ class SearchDebugDump:
         for page in ranked_pages[:max_list]:
             doc_id = page.get("document_id")
             page_index = page.get("page_index")
-            doc = doc_cache.get(doc_id)
+            doc = doc_cache.get(doc_id) if isinstance(doc_id, str) else None
             lines: List[Dict[str, Any]] = []
             if doc:
                 doc_metadata = _coerce_metadata(getattr(doc, "metadata", None))
