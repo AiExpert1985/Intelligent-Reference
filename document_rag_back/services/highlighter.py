@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Sequence, cast
 
 from core.domain import ChunkSearchResult
 
@@ -47,10 +47,13 @@ class Highlighter:
             chunk = getattr(hit, "chunk", None)
             if chunk is not None and getattr(chunk, "metadata", None):
                 line_ids = chunk.metadata.get("line_ids", []) or []
-            elif getattr(hit, "metadata", None):
-                line_ids = hit.metadata.get("line_ids", []) or []
-            elif hasattr(hit, "line_ids"):
-                line_ids = getattr(hit, "line_ids") or []
+            else:
+                extra_hit = cast(Any, hit)
+                metadata = getattr(extra_hit, "metadata", None)
+                if isinstance(metadata, dict):
+                    line_ids = metadata.get("line_ids", []) or []
+                elif hasattr(extra_hit, "line_ids"):
+                    line_ids = getattr(extra_hit, "line_ids") or []
 
             for line_id in line_ids:
                 best = line_scores.get(line_id)
@@ -78,7 +81,11 @@ class Highlighter:
                 continue
 
             chunk = getattr(hit, "chunk", None)
-            metadata = getattr(chunk, "metadata", {}) if chunk is not None else {}
+            metadata: Dict[str, Any] = {}
+            if chunk is not None:
+                metadata_obj = getattr(chunk, "metadata", None)
+                if isinstance(metadata_obj, dict):
+                    metadata = metadata_obj
             for line_id in metadata.get("line_ids", []) or []:
                 existing = best_by_line.get(line_id)
                 if existing is None or score > existing:
