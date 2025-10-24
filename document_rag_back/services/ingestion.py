@@ -30,6 +30,7 @@ from infrastructure.repositories import SQLDocumentRepository
 from services.async_processor import async_processor
 from services.debug_dump import SearchDebugDump
 from services.document_processor_factory import DocumentProcessorFactory
+from utils.metadata import serialize_metadata_list
 from utils.common import (
     get_file_extension,
     get_file_hash,
@@ -422,7 +423,7 @@ class DocumentIngestion:
                         "sentence_id": sentence["sentence_id"],
                         "document_id": document.id,
                         "page_index": page_idx,
-                        "line_ids": sentence.get("line_ids", []),
+                        "line_ids": serialize_metadata_list(sentence.get("line_ids", [])),
                     },
                 )
                 sentence_chunks.append(chunk)

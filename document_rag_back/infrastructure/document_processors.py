@@ -31,6 +31,7 @@ from core.interfaces import IDocumentProcessor, DocumentChunk, IPdfToImageConver
 from api.schemas import DocumentProcessingError, ErrorCode
 from config import settings
 from utils.text_utils import split_into_sentences
+from utils.metadata import serialize_metadata_list
 
 try:
     from infrastructure.line_builder import rebuild_text_from_boxes  # type: ignore
@@ -374,7 +375,7 @@ class BaseOCRProcessor(IDocumentProcessor):
             metadata = {
                 "page": doc.metadata.get("page", page_index),
                 "source": doc.metadata.get("source", source),
-                "line_ids": _unique_preserve_order(line_ids),
+                "line_ids": serialize_metadata_list(_unique_preserve_order(line_ids)),
             }
 
             chunks.append(

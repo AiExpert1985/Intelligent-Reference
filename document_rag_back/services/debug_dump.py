@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from core.domain import DocumentChunk
+from utils.metadata import normalize_metadata_list
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,9 @@ class SearchDebugDump:
                 fh.write(f"SENTENCE {index}\n")
                 fh.write(f"Page: {metadata.get('page_index', 'N/A')}\n")
                 fh.write(f"Sentence ID: {metadata.get('sentence_id', 'N/A')}\n")
-                fh.write(f"Line IDs: {metadata.get('line_ids', [])}\n")
+                fh.write(
+                    f"Line IDs: {normalize_metadata_list(metadata.get('line_ids'))}\n"
+                )
                 fh.write("-" * 80 + "\n")
                 fh.write(sentence.content.replace("\n", " ").strip())
                 fh.write("\n\n" + "=" * 80 + "\n\n")
@@ -146,7 +149,9 @@ class SearchDebugDump:
                 fh.write(f"    Page: {page}\n")
                 fh.write(f"    Score (raw): {getattr(hit, 'score', 0.0):.4f}\n")
                 fh.write(f"    Score (bounded): {getattr(hit, 'score_bounded', 0.0)}\n")
-                fh.write(f"    Line IDs: {metadata.get('line_ids', [])}\n")
+                fh.write(
+                    f"    Line IDs: {normalize_metadata_list(metadata.get('line_ids'))}\n"
+                )
                 fh.write(f"    Text: {_snip(getattr(chunk, 'content', ''))}\n\n")
 
             fh.write(f"CHUNK HITS (total={len(chunk_hits)}, showing top {max_list}):\n")
@@ -161,7 +166,9 @@ class SearchDebugDump:
                 fh.write(f"    Page: {page}\n")
                 fh.write(f"    Score (raw): {getattr(hit, 'score', 0.0):.4f}\n")
                 fh.write(f"    Score (bounded): {getattr(hit, 'score_bounded', 0.0)}\n")
-                fh.write(f"    Line IDs: {metadata.get('line_ids', [])}\n")
+                fh.write(
+                    f"    Line IDs: {normalize_metadata_list(metadata.get('line_ids'))}\n"
+                )
                 fh.write(f"    Text: {_snip(getattr(chunk, 'content', ''))}\n\n")
 
             fh.write(f"RANKED PAGES (total={len(ranked_pages)}, showing top {max_list}):\n")
@@ -226,7 +233,7 @@ class SearchDebugDump:
                         "score_bounded": getattr(hit, "score_bounded", 0.0),
                         "document_id": getattr(chunk, "document_id", None) or metadata.get("document_id"),
                         "page": metadata.get("page") or metadata.get("page_index"),
-                        "line_ids": metadata.get("line_ids", []),
+                        "line_ids": normalize_metadata_list(metadata.get("line_ids")),
                         "text": getattr(chunk, "content", ""),
                     }
                 )
