@@ -30,6 +30,7 @@ from langchain_core.documents import Document as LangchainDocument
 from core.interfaces import IDocumentProcessor, DocumentChunk, IPdfToImageConverter
 from api.schemas import DocumentProcessingError, ErrorCode
 from config import settings
+from utils.common import temp_print
 from utils.text_utils import split_into_sentences
 from utils.metadata import serialize_metadata_list
 
@@ -217,8 +218,8 @@ class BaseOCRProcessor(IDocumentProcessor):
               }
         """
         # 1) Load page images
-        images = await self.load_images(file_path, file_type)
-        total_pages = len(images)
+        images: List[Image.Image] = await self.load_images(file_path, file_type)
+        total_pages: int = len(images)
 
         all_chunks: List[DocumentChunk] = []
         geometry_by_page: Dict[int, Dict[str, Any]] = {}
@@ -229,7 +230,10 @@ class BaseOCRProcessor(IDocumentProcessor):
             
             try:
                 # Extract lines with bounding boxes
-                lines = await self._extract_lines(image)
+                lines: List[LineRec] = await self._extract_lines(image)
+
+                for i, line in enumerate(lines):
+                    temp_print(f"line {i}: {line}")
 
                 if not lines:
                     logger.warning(f"No lines extracted from page {page_idx}")
