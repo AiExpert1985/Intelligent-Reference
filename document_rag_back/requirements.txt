@@ -17,13 +17,14 @@ langchain_community
 pillow
 PyMuPDF
 pytesseract
+tesseract
 
 # EasyOCR stack (requires torch + torchvision)
-torch==2.4.1
-torchvision==0.19.1
-torchaudio==2.4.1
+torch
+torchvision
+torchaudio
 easyocr
 
 # PaddleOCR stack (3.x pairs with PaddlePaddle 3.x)
-paddlepaddle>=3.0,<3.3
-paddleocr>=3.0,<3.1
+paddlepaddle
+paddleocr

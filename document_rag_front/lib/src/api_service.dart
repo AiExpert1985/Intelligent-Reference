@@ -37,12 +37,55 @@ class ApiException implements Exception {
 class ApiService {
   final Dio _dio;
 
+  // Try local server first; fall back to home server.
+  static const String _localBaseUrl = 'http://127.0.0.1:8000';
+  static const String _remoteBaseUrl = String.fromEnvironment(
+    'REMOTE_API_BASE',
+    defaultValue: 'http://100.127.26.110:8000',
+  );
+
   ApiService()
       : _dio = Dio(BaseOptions(
-          baseUrl: 'http://100.127.26.110:8000',
+          baseUrl: _localBaseUrl,
           connectTimeout: const Duration(seconds: 10),
           receiveTimeout: const Duration(seconds: 60),
         ));
+
+  Future<Response<dynamic>> _request(
+    String method,
+    String path, {
+    dynamic data,
+  }) async {
+    try {
+      _dio.options.baseUrl = _localBaseUrl;
+      return await _dio.request(
+        path,
+        data: data,
+        options: Options(method: method),
+      );
+    } on DioException catch (e) {
+      final t = e.type;
+      final isConnIssue = t == DioExceptionType.connectionError ||
+          t == DioExceptionType.connectionTimeout ||
+          t == DioExceptionType.receiveTimeout ||
+          t == DioExceptionType.sendTimeout;
+
+      if (isConnIssue) {
+        try {
+          _dio.options.baseUrl = _remoteBaseUrl;
+          return await _dio.request(
+            path,
+            data: data,
+            options: Options(method: method),
+          );
+        } on DioException catch (e2) {
+          _handleDioError(e2);
+        }
+      }
+
+      _handleDioError(e);
+    }
+  }
 
   Never _handleDioError(DioException e) {
     final errorCode = e.response?.statusCode ?? 0;
@@ -81,7 +124,7 @@ class ApiService {
   // Documents
   Future<List<Document>> listDocuments() async {
     try {
-      final response = await _dio.get('/documents');
+      final response = await _request('GET', '/documents');
       final List<dynamic> docList = response.data['documents'];
       return docList.map((json) => Document.fromJson(json)).toList();
     } on DioException catch (e) {
@@ -91,7 +134,7 @@ class ApiService {
 
   Future<void> deleteDocument(String docId) async {
     try {
-      await _dio.delete('/documents/$docId');
+      await _request('DELETE', '/documents/$docId');
     } on DioException catch (e) {
       _handleDioError(e);
     }
@@ -99,7 +142,7 @@ class ApiService {
 
   Future<void> clearAllDocuments() async {
     try {
-      await _dio.delete('/documents');
+      await _request('DELETE', '/documents');
     } on DioException catch (e) {
       _handleDioError(e);
     }
@@ -120,7 +163,7 @@ class ApiService {
     final formData = FormData.fromMap({'file': multipartFile});
 
     try {
-      final response = await _dio.post('/upload-document', data: formData);
+      final response = await _request('POST', '/upload-document', data: formData);
 
       if (response.data['status'] == 'error') {
         throw ApiException(
@@ -137,7 +180,7 @@ class ApiService {
 
   Future<ProcessingProgress> getProcessingStatus(String documentId) async {
     try {
-      final response = await _dio.get('/processing-status/$documentId');
+      final response = await _request('GET', '/processing-status/$documentId');
       return ProcessingProgress.fromJson(response.data);
     } on DioException catch (e) {
       _handleDioError(e);
@@ -148,7 +191,7 @@ class ApiService {
   Future<List<PageSearchResult>> searchPages(String query) async {
     try {
       final response =
-          await _dio.post('/search-pages', data: {'question': query});
+          await _request('POST', '/search-pages', data: {'question': query});
 
       final List<dynamic> results = response.data['results'];
       return results.map((json) => PageSearchResult.fromJson(json)).toList();
@@ -165,7 +208,7 @@ class ApiService {
   // Chat History
   Future<List<Map<String, dynamic>>> getChatHistory() async {
     try {
-      final response = await _dio.get('/search-history');
+      final response = await _request('GET', '/search-history');
       return List<Map<String, dynamic>>.from(response.data);
     } on DioException catch (e) {
       _handleDioError(e);
@@ -174,7 +217,7 @@ class ApiService {
 
   Future<void> clearChatHistory() async {
     try {
-      await _dio.delete('/search-history');
+      await _request('DELETE', '/search-history');
     } on DioException catch (e) {
       _handleDioError(e);
     }
