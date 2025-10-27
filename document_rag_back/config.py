@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     
     # Vector store
     VECTOR_DB_PATH: str = "./vector_db"
-    VECTOR_STORE_TYPE: str = "chromadb" # Options: faiss, chromadb
+    VECTOR_STORE_TYPE: str = "faiss" # Options: faiss, chromadb
     
     # Embedding model
     EMBEDDING_MODEL_NAME: str = "paraphrase-multilingual-mpnet-base-v2"
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # PDF processing method selection
     PDF_PROCESSING_METHOD: str = "ocr"
-    OCR_ENGINE: str = "tesseract" # Options: tesseract, easyocr, paddleocr
+    OCR_ENGINE: str = "paddleocr" # Options: tesseract, easyocr, paddleocr
     OCR_DPI: int = 300
     OCR_LANGUAGES: List[str] = ["ar", "en"]
     

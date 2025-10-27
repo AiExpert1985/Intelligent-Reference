@@ -232,9 +232,6 @@ class BaseOCRProcessor(IDocumentProcessor):
                 # Extract lines with bounding boxes
                 lines: List[LineRec] = await self._extract_lines(image)
 
-                for i, line in enumerate(lines):
-                    temp_print(f"line {i}: {line}")
-
                 if not lines:
                     logger.warning(f"No lines extracted from page {page_idx}")
                     continue
