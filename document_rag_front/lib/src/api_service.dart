@@ -37,11 +37,15 @@ class ApiException implements Exception {
 class ApiService {
   final Dio _dio;
 
-  // Try local server first; fall back to home server.
+  // Prefer the remote server unless local development is explicitly requested.
   static const String _localBaseUrl = 'http://127.0.0.1:8000';
   static const String _remoteBaseUrl = String.fromEnvironment(
     'REMOTE_API_BASE',
     defaultValue: 'http://100.127.26.110:8000',
+  );
+  static const bool _preferLocal = bool.fromEnvironment(
+    'PREFER_LOCAL_API',
+    defaultValue: false,
   );
 
   ApiService()
@@ -56,35 +60,47 @@ class ApiService {
     String path, {
     dynamic data,
   }) async {
-    try {
-      _dio.options.baseUrl = _localBaseUrl;
-      return await _dio.request(
-        path,
-        data: data,
-        options: Options(method: method),
-      );
-    } on DioException catch (e) {
-      final t = e.type;
-      final isConnIssue = t == DioExceptionType.connectionError ||
-          t == DioExceptionType.connectionTimeout ||
-          t == DioExceptionType.receiveTimeout ||
-          t == DioExceptionType.sendTimeout;
+    final endpoints = _preferLocal
+        ? <String>[_localBaseUrl, _remoteBaseUrl]
+        : <String>[_remoteBaseUrl, _localBaseUrl];
 
-      if (isConnIssue) {
-        try {
-          _dio.options.baseUrl = _remoteBaseUrl;
-          return await _dio.request(
-            path,
-            data: data,
-            options: Options(method: method),
-          );
-        } on DioException catch (e2) {
-          _handleDioError(e2);
+    DioException? lastConnIssue;
+
+    for (var i = 0; i < endpoints.length; i++) {
+      final baseUrl = endpoints[i];
+      final isLastAttempt = i == endpoints.length - 1;
+
+      try {
+        _dio.options.baseUrl = baseUrl;
+        return await _dio.request(
+          path,
+          data: data,
+          options: Options(method: method),
+        );
+      } on DioException catch (e) {
+        final t = e.type;
+        final isConnIssue = t == DioExceptionType.connectionError ||
+            t == DioExceptionType.connectionTimeout ||
+            t == DioExceptionType.receiveTimeout ||
+            t == DioExceptionType.sendTimeout;
+
+        if (!isConnIssue) {
+          _handleDioError(e);
+        }
+
+        lastConnIssue = e;
+
+        if (isLastAttempt) {
+          _handleDioError(e);
         }
       }
-
-      _handleDioError(e);
     }
+
+    if (lastConnIssue != null) {
+      _handleDioError(lastConnIssue);
+    }
+
+    throw StateError('Request handling fell through without a response.');
   }
 
   Never _handleDioError(DioException e) {
