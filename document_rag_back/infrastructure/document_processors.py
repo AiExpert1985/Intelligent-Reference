@@ -30,7 +30,6 @@ from langchain_core.documents import Document as LangchainDocument
 from core.interfaces import IDocumentProcessor, DocumentChunk, IPdfToImageConverter
 from api.schemas import DocumentProcessingError, ErrorCode
 from config import settings
-from utils.common import temp_print
 from utils.text_utils import split_into_sentences
 from utils.metadata import serialize_metadata_list
 
@@ -657,41 +656,47 @@ class PaddleOCRProcessor(BaseOCRProcessor):
     PaddleOCR with Arabic LTR token normalization.
     Handles both dict and list result formats.
     """
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.ocr = None
-
-    async def _ensure_reader(self):
-        if self.ocr is not None:
-            return
-        try:
-            from paddleocr import PaddleOCR  # type: ignore
-        except Exception as e:
-            raise RuntimeError(f"PaddleOCR not available: {e}")
-        # use_angle_cls helps with rotation; adjust langs as needed
-        self.ocr = PaddleOCR(use_angle_cls=True, lang='ar')  # or 'ar', 'en', 'ar+en' depending on support
+        self._engine: Optional[Any] = None
 
     async def _extract_lines(self, image: Image.Image) -> List[Dict[str, Any]]:
-        await self._ensure_reader()
-        assert self.ocr is not None  # Add this line
+        self._ensure_engine()
+
         import numpy as np
-        arr = np.array(image.convert("RGB"))
-        result = self.ocr.ocr(arr, cls=True)
+
+        img_array = np.array(image.convert("RGB"))
+        result = await asyncio.to_thread(self._engine.ocr, img_array)  # type: ignore[attr-defined]
+
+        items = self._parse_paddle_result(result)
+
         lines: List[Dict[str, Any]] = []
-        # Paddle returns list per image; first element is results
-        for det in (result[0] or []):
-            poly, (text, conf) = det
-            if not text:
+        for bbox, text, conf in items:
+            if not bbox or not text:
                 continue
-            bbox_px = _axis_aligned_from_quad(poly)
-            lines.append({
-                "line_id": f"ln_{uuid.uuid4().hex[:8]}",
-                "poly": [[int(x), int(y)] for x, y in poly],
-                "bbox_px": bbox_px,
-                "text": str(text),
-                "conf": float(conf) if conf is not None else 0.0,
-            })
+
+            raw_bbox = bbox.tolist() if hasattr(bbox, "tolist") else bbox
+
+            poly: List[List[int]] = []
+            for point in raw_bbox:
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    poly.append([int(point[0]), int(point[1])])
+
+            if len(poly) < 4:
+                continue
+
+            bbox_px = _axis_aligned_from_quad(poly[:4])
+            lines.append(
+                {
+                    "line_id": f"ln_{uuid.uuid4().hex[:8]}",
+                    "poly": poly[:4],
+                    "bbox_px": bbox_px,
+                    "text": _flip_if_needed(str(text)),
+                    "conf": float(conf) if conf is not None else 0.0,
+                }
+            )
+
         return lines
 
     def _ensure_engine(self) -> None:
@@ -700,7 +705,7 @@ class PaddleOCRProcessor(BaseOCRProcessor):
 
         if self._engine is not None:
             return
-        
+
         try:
             if sys.platform.startswith("win") and sys.version_info >= (3, 13):
                 raise RuntimeError(
@@ -730,7 +735,7 @@ class PaddleOCRProcessor(BaseOCRProcessor):
         img_array = np.array(image.convert("RGB"))
 
         # Run OCR
-        result = await asyncio.to_thread(self._engine.ocr, img_array)  # type: ignore
+        result = await asyncio.to_thread(self._engine.ocr, img_array)  # type: ignore[attr-defined]
 
         # Extract items from result
         items = self._parse_paddle_result(result)
