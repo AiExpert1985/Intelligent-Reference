@@ -5,6 +5,7 @@ sqlalchemy
 aiosqlite
 python-multipart
 uvicorn
+requests
 
 # --- vector/RAG ---
 chromadb
@@ -28,3 +29,6 @@ easyocr
 # PaddleOCR stack (3.x pairs with PaddlePaddle 3.x)
 paddlepaddle
 paddleocr
+
+# DeepSeek OCR (install only when using the DeepSeek engine)
+# deepseek-ocr

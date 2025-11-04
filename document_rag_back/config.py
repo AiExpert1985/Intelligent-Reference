@@ -1,6 +1,6 @@
 # config.py
 """Enhanced configuration with new settings"""
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 from utils.common import get_log_file_path, get_project_root
 
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # PDF processing method selection
     PDF_PROCESSING_METHOD: str = "ocr"
-    OCR_ENGINE: str = "paddleocr" # Options: tesseract, easyocr, paddleocr
+    OCR_ENGINE: str = "deepseek" # Options: tesseract, easyocr, paddleocr, deepseek
     OCR_DPI: int = 300
     OCR_LANGUAGES: List[str] = ["ar", "en"]
     
@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # Document processing
     ARABIC_BIDI_WRAP_FOR_DISPLAY: bool = True  # Add RTL markers for display
 
+    # GPU / Remote compute configuration
+    USE_REMOTE_GPU: bool = False
+    RUNPOD_API_KEY: Optional[str] = None
+    RUNPOD_ENDPOINT: Optional[str] = None
+    RUNPOD_TIMEOUT: int = 300
+    LOCAL_GPU_DEVICE: str = "cuda"
 
     # Search quality controls
     SEARCH_CANDIDATE_K: int = 40
