@@ -1,17 +1,19 @@
 # RunPod serverless requirements
 runpod
 
-# Deep learning
-torch>=2.0.0
-torchvision>=0.15.0
+# Deep learning (PaddleOCR uses PyTorch or PaddlePaddle)
+# Using PaddlePaddle for now
+paddlepaddle-gpu>=3.0.0
 
 # Image processing
 Pillow>=9.0.0
+opencv-python-headless>=4.5.0
+numpy>=1.19.0
 
-# DeepSeek OCR
-# Note: Replace with actual package name when available
-# For now, you might need to install from source or private repo
-deepseek-ocr
+# PaddleOCR
+paddleocr>=2.7.0
 
-# Or if installing from git:
-# git+https://github.com/deepseek-ai/deepseek-ocr.git
+# Future: DeepSeek OCR (when ready to upgrade)
+# torch>=2.0.0
+# torchvision>=0.15.0
+# git+https://github.com/deepseek-ai/DeepSeek-OCR.git

@@ -1,31 +1,39 @@
 """
-RunPod serverless handler for DeepSeek OCR.
+RunPod serverless handler for PaddleOCR.
 This handler receives base64-encoded images and returns OCR results.
 """
 import runpod
 import base64
 import io
 import time
+import numpy as np
 from PIL import Image
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 
-def load_deepseek_model():
-    """Load DeepSeek OCR model on pod startup."""
+def load_paddleocr_model():
+    """Load PaddleOCR model on pod startup."""
     try:
-        from deepseek_ocr import DeepSeekOCR
+        from paddleocr import PaddleOCR
 
-        # Initialize on GPU if available
-        model = DeepSeekOCR(device="cuda")
-        print("✅ DeepSeek OCR loaded successfully on GPU")
+        # Initialize PaddleOCR with GPU
+        # use_angle_cls=True enables text orientation detection
+        # lang='ar' for Arabic (also supports English)
+        model = PaddleOCR(
+            use_angle_cls=True,
+            lang='ar',
+            use_gpu=True,
+            show_log=False
+        )
+        print("✅ PaddleOCR loaded successfully on GPU")
         return model
     except Exception as e:
-        print(f"❌ Failed to load DeepSeek OCR: {e}")
+        print(f"❌ Failed to load PaddleOCR: {e}")
         raise
 
 
 # Load model once at startup (not per request)
-deepseek_model = load_deepseek_model()
+ocr_model = load_paddleocr_model()
 
 
 def handler(event: Dict[str, Any]) -> Dict[str, Any]:
@@ -36,7 +44,7 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
     {
         "input": {
             "operation": "ocr",
-            "processor": "deepseek",
+            "processor": "paddleocr",
             "image": "<base64-encoded-image>"
         }
     }
@@ -55,7 +63,7 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
         # Extract input data
         job_input = event.get("input", {})
         operation = job_input.get("operation", "ocr")
-        processor = job_input.get("processor", "deepseek")
+        processor = job_input.get("processor", "paddleocr")
         image_b64 = job_input.get("image")
 
         if not image_b64:
@@ -64,7 +72,8 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
         if operation != "ocr":
             return {"error": f"Unsupported operation: {operation}"}
 
-        if processor != "deepseek":
+        # Accept both paddleocr and deepseek for compatibility
+        if processor not in ["paddleocr", "deepseek"]:
             return {"error": f"Unsupported processor: {processor}"}
 
         # Decode base64 image
@@ -76,14 +85,14 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
 
         # Run OCR
         try:
-            # Try recognize method first, fallback to process_image
-            if hasattr(deepseek_model, "recognize"):
-                result = deepseek_model.recognize(image)
-            else:
-                result = deepseek_model.process_image(image)
+            # Convert PIL image to numpy array (PaddleOCR format)
+            img_array = np.array(image)
+
+            # Run PaddleOCR
+            result = ocr_model.ocr(img_array, cls=True)
 
             # Parse result
-            text, lines = parse_deepseek_result(result, image.size)
+            text, lines = parse_paddleocr_result(result, image.size)
 
             processing_time = time.time() - start_time
 
@@ -101,182 +110,116 @@ def handler(event: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": f"Handler error: {str(e)}"}
 
 
-def parse_deepseek_result(raw_result: Any, image_size: tuple) -> tuple:
-    """Parse DeepSeek OCR output into text and line geometry."""
+def parse_paddleocr_result(raw_result: Any, image_size: tuple) -> tuple:
+    """
+    Parse PaddleOCR output into text and line geometry.
+
+    PaddleOCR returns: [[page_results]] where each page contains:
+    [
+        [[[x1,y1], [x2,y2], [x3,y3], [x4,y4]], (text, confidence)],
+        ...
+    ]
+    """
     width, height = image_size
 
-    # Extract items from result
-    items = extract_items(raw_result)
+    # Handle empty results
+    if not raw_result or not raw_result[0]:
+        return "", []
 
-    if not items:
-        # Fallback: try to extract text directly
-        text = extract_text_fallback(raw_result)
-        return text, []
+    # Extract first page results
+    page_result = raw_result[0]
+
+    if not page_result:
+        return "", []
 
     # Parse lines
     parsed_lines = []
     text_parts = []
 
-    for entry in items:
-        line = parse_line(entry, width, height)
-        if line:
-            parsed_lines.append(line)
-            text_parts.append(line["text"])
+    for line_data in page_result:
+        if not line_data or len(line_data) < 2:
+            continue
 
-    return "\n".join(text_parts), parsed_lines
+        bbox_points = line_data[0]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+        text_info = line_data[1]    # (text, confidence)
 
+        # Extract text and confidence
+        if isinstance(text_info, (tuple, list)) and len(text_info) >= 2:
+            text = str(text_info[0]).strip()
+            confidence = float(text_info[1])
+        else:
+            text = str(text_info).strip()
+            confidence = 0.0
 
-def extract_items(raw_result: Any) -> list:
-    """Extract line-like items from DeepSeek result."""
-    if isinstance(raw_result, dict):
-        for key in ("lines", "items", "data", "result", "predictions"):
-            candidate = raw_result.get(key)
-            if isinstance(candidate, list):
-                return candidate
+        if not text:
+            continue
 
-    if isinstance(raw_result, list):
-        return raw_result
+        # Normalize polygon coordinates
+        polygon = normalize_polygon(bbox_points, width, height)
+        bbox_px = poly_to_bbox(polygon)
 
-    if hasattr(raw_result, "lines") and isinstance(raw_result.lines, list):
-        return raw_result.lines
+        line = {
+            "line_id": f"ln_{time.time_ns():x}",
+            "poly": polygon,
+            "bbox_px": bbox_px,
+            "text": text,
+            "conf": confidence,
+        }
 
-    return []
+        parsed_lines.append(line)
+        text_parts.append(text)
 
+    # Join text with newlines
+    full_text = "\n".join(text_parts)
 
-def extract_text_fallback(raw_result: Any) -> str:
-    """Extract text when no structured lines are present."""
-    if isinstance(raw_result, dict):
-        return str(raw_result.get("text", "")).strip()
-
-    if hasattr(raw_result, "text"):
-        return str(getattr(raw_result, "text", "")).strip()
-
-    return ""
-
-
-def parse_line(entry: Any, width: int, height: int) -> dict:
-    """Parse an individual line entry."""
-    # Extract text
-    text = extract_line_text(entry)
-    if not text:
-        return None
-
-    # Extract polygon
-    polygon = extract_polygon(entry, width, height)
-
-    # Extract confidence
-    confidence = extract_confidence(entry)
-
-    return {
-        "line_id": f"ln_{time.time_ns():x}",
-        "poly": polygon,
-        "bbox_px": poly_to_bbox(polygon),
-        "text": text,
-        "conf": confidence,
-    }
+    return full_text, parsed_lines
 
 
-def extract_line_text(entry: Any) -> str:
-    """Extract text from a line entry."""
-    if isinstance(entry, dict):
-        for key in ("text", "sentence", "value", "content"):
-            value = entry.get(key)
-            if value:
-                return str(value).strip()
-
-    if isinstance(entry, (list, tuple)) and entry:
-        return str(entry[0]).strip()
-
-    return ""
-
-
-def extract_polygon(entry: Any, width: int, height: int) -> list:
-    """Extract polygon from entry."""
-    polygon = None
-
-    if isinstance(entry, dict):
-        polygon = entry.get("polygon") or entry.get("poly")
-        if polygon is None:
-            bbox = entry.get("bbox") or entry.get("box")
-            polygon = bbox_to_poly(bbox, width, height)
-    elif isinstance(entry, (list, tuple)) and len(entry) > 1:
-        polygon = bbox_to_poly(entry[1], width, height)
-
-    return normalise_polygon(polygon, width, height)
-
-
-def extract_confidence(entry: Any) -> float:
-    """Extract confidence score from entry."""
-    if isinstance(entry, dict):
-        for key in ("confidence", "score", "probability", "conf"):
-            value = entry.get(key)
-            if value is not None:
-                try:
-                    return float(value)
-                except (TypeError, ValueError):
-                    return 0.0
-
-    if isinstance(entry, (list, tuple)) and len(entry) > 2:
-        try:
-            return float(entry[2])
-        except (TypeError, ValueError):
-            return 0.0
-
-    return 0.0
-
-
-def bbox_to_poly(bbox: Any, width: int, height: int) -> list:
-    """Convert bounding box to polygon."""
-    if not bbox:
-        return None
-
-    if isinstance(bbox, dict):
-        x = bbox.get("x") or bbox.get("left") or 0
-        y = bbox.get("y") or bbox.get("top") or 0
-        w = bbox.get("w") or bbox.get("width") or width
-        h = bbox.get("h") or bbox.get("height") or height
-        x, y, w, h = float(x), float(y), float(w), float(h)
-        return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
-
-    if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
-        x, y, w, h = map(float, bbox[:4])
-        return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
-
-    return None
-
-
-def normalise_polygon(polygon: list, width: int, height: int) -> list:
-    """Normalise polygon coordinates."""
+def normalize_polygon(polygon: List, width: int, height: int) -> List[List[int]]:
+    """Normalize polygon coordinates to be within image bounds."""
     if not polygon or len(polygon) < 4:
         return [[0, 0], [width, 0], [width, height], [0, height]]
 
-    normalised = []
-    for x, y in polygon[:4]:
-        norm_x = int(max(0, min(width, x)))
-        norm_y = int(max(0, min(height, y)))
-        normalised.append([norm_x, norm_y])
+    normalized = []
+    for point in polygon[:4]:
+        if isinstance(point, (list, tuple)) and len(point) >= 2:
+            x = int(max(0, min(width, float(point[0]))))
+            y = int(max(0, min(height, float(point[1]))))
+            normalized.append([x, y])
+        else:
+            normalized.append([0, 0])
 
-    return normalised
+    # Ensure we have exactly 4 points
+    while len(normalized) < 4:
+        normalized.append([0, 0])
+
+    return normalized[:4]
 
 
-def poly_to_bbox(polygon: list) -> tuple:
-    """Convert polygon to bounding box."""
+def poly_to_bbox(polygon: List[List[int]]) -> tuple:
+    """Convert polygon to bounding box (x, y, width, height)."""
+    if not polygon or len(polygon) < 4:
+        return (0, 0, 0, 0)
+
     xs = [point[0] for point in polygon]
     ys = [point[1] for point in polygon]
+
     x1, x2 = min(xs), max(xs)
     y1, y2 = min(ys), max(ys)
+
     return (x1, y1, x2 - x1, y2 - y1)
 
 
-def calculate_confidence(lines: list) -> float:
+def calculate_confidence(lines: List[Dict]) -> float:
     """Calculate average confidence from lines."""
     if not lines:
         return 0.0
 
-    confidences = [line.get("conf", 0.0) for line in lines]
+    confidences = [line.get("conf", 0.0) for line in lines if line.get("conf") is not None]
     return sum(confidences) / len(confidences) if confidences else 0.0
 
 
 if __name__ == "__main__":
     # Start the RunPod serverless worker
+    print("🚀 Starting RunPod serverless worker with PaddleOCR...")
     runpod.serverless.start({"handler": handler})
