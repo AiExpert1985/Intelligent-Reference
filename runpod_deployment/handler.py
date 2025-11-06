@@ -16,13 +16,13 @@ def load_paddleocr_model():
     try:
         from paddleocr import PaddleOCR
 
-        # Initialize PaddleOCR with GPU
+        # Initialize PaddleOCR
         # use_angle_cls=True enables text orientation detection
         # lang='ar' for Arabic (also supports English)
+        # GPU will be auto-detected if available
         model = PaddleOCR(
             use_angle_cls=True,
-            lang='ar',
-            use_gpu=True
+            lang='ar'
         )
         print("✅ PaddleOCR loaded successfully on GPU")
         return model
