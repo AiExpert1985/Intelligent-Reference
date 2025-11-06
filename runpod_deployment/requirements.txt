@@ -1,8 +1,8 @@
 # RunPod serverless requirements
 runpod
 
-# Deep learning (PaddleOCR uses PyTorch or PaddlePaddle)
-# Using PaddlePaddle for now
+# Deep learning (PaddleOCR uses PaddlePaddle)
+# Latest stable version is 2.6.2
 paddlepaddle-gpu>=2.6.0
 
 # Image processing

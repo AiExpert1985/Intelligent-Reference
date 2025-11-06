@@ -22,8 +22,7 @@ def load_paddleocr_model():
         model = PaddleOCR(
             use_angle_cls=True,
             lang='ar',
-            use_gpu=True,
-            show_log=False
+            use_gpu=True
         )
         print("✅ PaddleOCR loaded successfully on GPU")
         return model
