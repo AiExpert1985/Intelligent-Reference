@@ -3,7 +3,7 @@ runpod
 
 # Deep learning (PaddleOCR uses PyTorch or PaddlePaddle)
 # Using PaddlePaddle for now
-paddlepaddle-gpu>=3.0.0
+paddlepaddle-gpu>=2.6.0
 
 # Image processing
 Pillow>=9.0.0
