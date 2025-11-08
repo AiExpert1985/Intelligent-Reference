@@ -323,9 +323,9 @@ class RemoteGPUBackend(GPUBackend):
         self.endpoint = endpoint.rstrip("/")
         self.timeout = timeout
         self._session = requests.Session()
+        # Note: Our FastAPI server doesn't require authentication
         self._session.headers.update(
             {
-                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             }
         )
@@ -348,18 +348,16 @@ class RemoteGPUBackend(GPUBackend):
         pil_image.save(buffer, format="PNG")
         image_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
+        # Payload format for our FastAPI server
         payload = {
-            "input": {
-                "operation": "ocr",
-                "processor": OCRProcessor.DEEPSEEK.value,
-                "image": image_b64,
-            }
+            "image": image_b64,
+            "prompt_type": "markdown",  # Default to markdown for documents
         }
 
         start = time.time()
         try:
             response = self._session.post(
-                f"{self.endpoint}/run",
+                f"{self.endpoint}/ocr_base64",
                 json=payload,
                 timeout=self.timeout,
             )
@@ -369,13 +367,18 @@ class RemoteGPUBackend(GPUBackend):
             logger.error("Remote OCR request failed: %s", exc)
             raise RuntimeError(f"Remote GPU request failed: {exc}") from exc
 
-        lines = result.get("lines") if isinstance(result.get("lines"), list) else None
-        confidence = result.get("confidence")
+        # Parse the FastAPI server response
+        # Our server returns: {"success": True, "text": "...", "processing_time": ..., "prompt_used": "..."}
+        text = str(result.get("text", ""))
+
+        # Note: Our FastAPI server returns plain text, not structured lines
+        # We'll parse it into lines for compatibility
+        lines = None  # TODO: Could parse text into lines if needed
 
         return OCRResult(
-            text=str(result.get("text", "")),
+            text=text,
             lines=lines,
-            confidence=float(confidence) if confidence is not None else None,
+            confidence=None,  # FastAPI server doesn't return confidence
             processing_time=time.time() - start,
             source_file=source,
             processor=OCRProcessor.DEEPSEEK.value,
