@@ -24,7 +24,7 @@ from typing import Callable, List, Dict, Any, Optional, Tuple
 
 from PIL import Image
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document as LangchainDocument
 
 from core.interfaces import IDocumentProcessor, DocumentChunk, IPdfToImageConverter
