@@ -1,34 +1,34 @@
+# Requirements for running backend with REMOTE GPU (RunPod)
+# This skips local OCR engines since OCR happens on RunPod
+
 # --- web/api/db/core ---
-fastapi
-pydantic-settings
-sqlalchemy
-aiosqlite
-python-multipart
-uvicorn
-requests
+fastapi>=0.104.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+sqlalchemy>=2.0.0
+aiosqlite>=0.19.0
+python-multipart>=0.0.6
+uvicorn[standard]>=0.24.0
+requests>=2.31.0  # Required for sending HTTP requests to RunPod
 
 # --- vector/RAG ---
-chromadb
-sentence-transformers
-faiss-cpu
-langchain
-langchain_community
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.0
 
-# --- OCR engines & imaging ---
-pillow
-PyMuPDF
-pytesseract
-tesseract
+# Langchain packages (reorganized in newer versions)
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-text-splitters>=0.0.1
+langchain-core>=0.1.0
 
-# EasyOCR stack (requires torch + torchvision)
-torch
-torchvision
-torchaudio
-easyocr
+# --- Imaging (for converting PDFs to images before sending to RunPod) ---
+pillow>=9.0.0
+PyMuPDF>=1.23.0
 
-# PaddleOCR stack (3.x pairs with PaddlePaddle 3.x)
-paddlepaddle
-paddleocr
+# --- Additional utilities ---
+python-bidi>=0.4.2  # For Arabic text handling
+arabic-reshaper>=3.0.0
 
-# DeepSeek OCR (install only when using the DeepSeek engine)
-# deepseek-ocr
+# Note: PyTorch, EasyOCR, PaddleOCR, DeepSeek-OCR are NOT needed locally
+# All OCR processing happens on RunPod
