@@ -1,0 +1,188 @@
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+import uvicorn
+from PIL import Image
+import io
+import base64
+import time
+import os
+import torch
+from transformers import AutoModel, AutoTokenizer
+import tempfile
+import shutil
+
+app = FastAPI(title="DeepSeek OCR API")
+
+# Global model and tokenizer
+model = None
+tokenizer = None
+
+class Base64ImageRequest(BaseModel):
+    image: str  # base64 encoded image
+    prompt_type: str = "markdown"  # "markdown", "free", or "custom"
+    custom_prompt: str = None
+
+def load_model():
+    """Load DeepSeek-OCR model and tokenizer"""
+    global model, tokenizer
+
+    print("Loading DeepSeek-OCR model...")
+    model_name = 'deepseek-ai/DeepSeek-OCR'
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    model = AutoModel.from_pretrained(
+        model_name,
+        _attn_implementation='flash_attention_2',
+        trust_remote_code=True,
+        use_safetensors=True
+    )
+    model = model.eval().cuda().to(torch.bfloat16)
+
+    print("Model loaded successfully!")
+
+@app.on_event("startup")
+async def startup_event():
+    """Load model on startup"""
+    load_model()
+
+@app.get("/")
+async def root():
+    return {
+        "status": "DeepSeek OCR API is running",
+        "endpoints": ["/ocr", "/ocr_base64", "/health"],
+        "model": "deepseek-ai/DeepSeek-OCR"
+    }
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "healthy",
+        "model_loaded": model is not None,
+        "cuda_available": torch.cuda.is_available(),
+        "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
+    }
+
+def get_prompt(prompt_type: str, custom_prompt: str = None) -> str:
+    """Generate prompt based on type"""
+    if prompt_type == "custom" and custom_prompt:
+        return f"<image>\n{custom_prompt}"
+    elif prompt_type == "markdown":
+        return "<image>\n<|grounding|>Convert the document to markdown."
+    elif prompt_type == "free":
+        return "<image>\nFree OCR."
+    else:
+        # Default to markdown for documents
+        return "<image>\n<|grounding|>Convert the document to markdown."
+
+@app.post("/ocr")
+async def ocr_endpoint(
+    file: UploadFile = File(...),
+    prompt_type: str = "markdown"
+):
+    """
+    OCR endpoint that accepts image file upload
+
+    Args:
+        file: Image file (jpg, png, etc.)
+        prompt_type: Type of prompt - "markdown", "free", or "custom"
+    """
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    try:
+        start_time = time.time()
+
+        # Create temporary directory for this request
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save uploaded file temporarily
+            temp_image_path = os.path.join(temp_dir, "input_image.jpg")
+            with open(temp_image_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+
+            # Get prompt
+            prompt = get_prompt(prompt_type)
+
+            # Run OCR inference
+            result = model.infer(
+                tokenizer,
+                prompt=prompt,
+                image_file=temp_image_path,
+                output_path=temp_dir,
+                base_size=1024,
+                image_size=640,
+                crop_mode=True,
+                save_results=False,  # Don't save intermediate results
+                test_compress=True
+            )
+
+        processing_time = time.time() - start_time
+
+        return JSONResponse({
+            "success": True,
+            "text": result,
+            "processing_time": processing_time,
+            "prompt_used": prompt
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
+
+@app.post("/ocr_base64")
+async def ocr_base64_endpoint(request: Base64ImageRequest):
+    """
+    OCR endpoint that accepts base64 encoded image
+
+    Args:
+        request: JSON with base64 image and optional prompt_type
+    """
+    if model is None:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+
+    try:
+        start_time = time.time()
+
+        # Decode base64 image
+        image_data = base64.b64decode(request.image)
+        image = Image.open(io.BytesIO(image_data)).convert("RGB")
+
+        # Create temporary directory for this request
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save image temporarily
+            temp_image_path = os.path.join(temp_dir, "input_image.jpg")
+            image.save(temp_image_path)
+
+            # Get prompt
+            prompt = get_prompt(request.prompt_type, request.custom_prompt)
+
+            # Run OCR inference
+            result = model.infer(
+                tokenizer,
+                prompt=prompt,
+                image_file=temp_image_path,
+                output_path=temp_dir,
+                base_size=1024,
+                image_size=640,
+                crop_mode=True,
+                save_results=False,
+                test_compress=True
+            )
+
+        processing_time = time.time() - start_time
+
+        return JSONResponse({
+            "success": True,
+            "text": result,
+            "processing_time": processing_time,
+            "prompt_used": prompt
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
+
+if __name__ == "__main__":
+    # Set CUDA device
+    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+
+    # Run server
+    uvicorn.run(app, host="0.0.0.0", port=8000)
