@@ -1,0 +1,25 @@
+# Minimal requirements for running backend with REMOTE GPU (RunPod)
+# This skips local OCR engines since OCR happens on RunPod
+
+# --- web/api/db/core ---
+fastapi
+pydantic-settings
+sqlalchemy
+aiosqlite
+python-multipart
+uvicorn
+requests  # Required for sending HTTP requests to RunPod
+
+# --- vector/RAG ---
+chromadb
+sentence-transformers
+faiss-cpu
+langchain
+langchain_community
+
+# --- Imaging (for converting PDFs to images before sending to RunPod) ---
+pillow
+PyMuPDF
+
+# Note: PyTorch, EasyOCR, PaddleOCR, DeepSeek-OCR are NOT needed locally
+# All OCR processing happens on RunPod
