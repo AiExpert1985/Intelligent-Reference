@@ -1,325 +1,281 @@
-# 🚀 RunPod DeepSeek OCR Deployment Guide
+# 🚀 RunPod DeepSeek OCR Deployment Guide (Pods)
 
-This guide walks you through deploying your DeepSeek OCR service to RunPod serverless.
-
----
-
-## 📋 Prerequisites
-
-1. **RunPod Account**: Sign up at [runpod.io](https://www.runpod.io/)
-2. **Docker Hub Account**: Sign up at [hub.docker.com](https://hub.docker.com/)
-3. **Docker Installed**: For building and pushing the image locally
+This guide shows you how to deploy DeepSeek OCR on RunPod Pods (GPU servers) for cost-effective, on-demand GPU processing.
 
 ---
 
-## 🔧 Step 1: Prepare the Docker Image
+## 📋 Why RunPod Pods?
 
-### Option A: Build and Push Locally (Recommended)
+**Pods (Server) vs Serverless:**
+- ✅ **Pods**: SSH access, git pull updates (seconds), start/stop as needed, $5-30/month for testing
+- ❌ **Serverless**: Requires Docker upload (10+ hours on slow internet), pay per request
 
-1. **Navigate to this directory**:
-   ```bash
-   cd runpod_deployment
-   ```
-
-2. **Build the Docker image**:
-   ```bash
-   docker build -t your-dockerhub-username/deepseek-ocr:latest .
-   ```
-
-3. **Test locally** (optional):
-   ```bash
-   docker run --gpus all -p 8000:8000 your-dockerhub-username/deepseek-ocr:latest
-   ```
-
-4. **Push to Docker Hub**:
-   ```bash
-   docker login
-   docker push your-dockerhub-username/deepseek-ocr:latest
-   ```
-
-### Option B: Use RunPod's Built-in Build (Easier)
-
-RunPod can build your image directly from GitHub. Skip to Step 2.
+**We chose Pods for:**
+- Fast updates via git pull
+- Start/stop capability for cost savings
+- Direct development and testing
+- No Docker image uploads needed
 
 ---
 
-## 🌐 Step 2: Create RunPod Serverless Endpoint
+## 🎯 Quick Start
 
-### 2.1 Log into RunPod
+### 1. Create RunPod Pod
 
-1. Go to [runpod.io](https://www.runpod.io/)
-2. Log in to your account
-3. Navigate to **"Serverless"** in the left menu
+1. Go to [RunPod Console](https://www.runpod.io/console/pods)
+2. Click **"Deploy"** → **"Pods"**
+3. Choose a GPU (e.g., RTX 4090, A4000)
+4. Select a template with:
+   - CUDA 11.8+
+   - Python 3.10+
+   - Git installed
+5. **Expose HTTP Ports**: Add `8000` in the HTTP ports field
+6. Click **"Deploy"**
 
-### 2.2 Create New Endpoint
+### 2. Setup Environment on RunPod
 
-1. Click **"+ New Endpoint"**
-2. Fill in the details:
-
-   **Basic Settings:**
-   - **Endpoint Name**: `deepseek-ocr-endpoint`
-   - **Select GPU**: Choose based on budget
-     - RTX 4090 (cheapest, good performance)
-     - RTX A6000 (more VRAM)
-     - A100 (best performance, more expensive)
-
-   **Docker Configuration:**
-   - **Docker Image**: `your-dockerhub-username/deepseek-ocr:latest`
-   - Or use **"Build from GitHub"** and connect your repo
-
-   **Container Configuration:**
-   - **Container Disk**: 20 GB (minimum)
-   - **Idle Timeout**: 5 seconds (saves money)
-   - **Max Workers**: 3 (adjust based on load)
-
-   **Environment Variables** (if needed):
-   - Add any custom environment variables here
-
-3. Click **"Deploy"**
-
-### 2.3 Wait for Deployment
-
-- RunPod will pull your Docker image and deploy it
-- This takes 2-5 minutes
-- You'll see the status change from "Deploying" to "Ready"
-
----
-
-## 🔑 Step 3: Get Your API Credentials
-
-1. Once deployed, click on your endpoint
-2. You'll see:
-   - **Endpoint ID**: Copy this
-   - **API Key**: Click "Reveal" and copy
-   - **Endpoint URL**: Something like `https://api.runpod.ai/v2/your-endpoint-id`
-
----
-
-## ⚙️ Step 4: Configure Your App
-
-Update your `config.py` or create a `.env` file:
-
-```python
-# config.py or .env
-USE_REMOTE_GPU = True
-RUNPOD_API_KEY = "your-api-key-here"
-RUNPOD_ENDPOINT = "https://api.runpod.ai/v2/your-endpoint-id"
-RUNPOD_TIMEOUT = 300
-OCR_ENGINE = "deepseek"
-```
-
-Or use environment variables:
+SSH into your pod and run:
 
 ```bash
-export USE_REMOTE_GPU=True
-export RUNPOD_API_KEY="your-api-key-here"
-export RUNPOD_ENDPOINT="https://api.runpod.ai/v2/your-endpoint-id"
-export OCR_ENGINE="deepseek"
+# Install Miniconda
+cd /workspace
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash Miniconda3-latest-Linux-x86_64.sh -b -p /workspace/miniconda3
+/workspace/miniconda3/bin/conda init bash
+source ~/.bashrc
+
+# Accept conda TOS
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
+# Create environment
+conda create -n deepseek-ocr python=3.12.9 -y
+conda activate deepseek-ocr
+
+# Clone your repository
+cd /workspace
+git clone -b YOUR_BRANCH https://github.com/YOUR_USERNAME/YOUR_REPO.git
+cd YOUR_REPO
+
+# Install PyTorch with CUDA 11.8
+pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu118
+
+# Install other dependencies
+cd runpod_deployment
+pip install -r requirements.txt
+
+# Install flash-attn (takes a few minutes to compile)
+pip install flash-attn==2.7.3 --no-build-isolation
+
+# Install hf_transfer for faster model downloads
+pip install hf_transfer
 ```
+
+### 3. Start the API Server
+
+```bash
+# Make sure you're in the environment
+conda activate deepseek-ocr
+
+# Navigate to deployment directory
+cd /workspace/YOUR_REPO/runpod_deployment
+
+# Start server (will download DeepSeek model ~6.7GB on first run)
+python api_server.py
+```
+
+The server will:
+- Download DeepSeek-OCR model from Hugging Face (~6.7GB, one-time)
+- Load model on GPU
+- Start FastAPI server on port 8000
+- Be accessible via RunPod proxy URL
+
+### 4. Access Your API
+
+RunPod automatically creates a proxy URL:
+```
+https://[YOUR-POD-ID]-8000.proxy.runpod.net
+```
+
+Find your Pod ID in the RunPod interface, then access:
+- Status: `https://[POD-ID]-8000.proxy.runpod.net/`
+- Health: `https://[POD-ID]-8000.proxy.runpod.net/health`
+- OCR: `POST https://[POD-ID]-8000.proxy.runpod.net/ocr_base64`
 
 ---
 
-## 🧪 Step 5: Test the Connection
+## 🔄 Updating Code
 
-### Test with RunPod's UI
+When you push changes to GitHub:
 
-1. In RunPod dashboard, click your endpoint
-2. Go to **"Requests"** tab
-3. Click **"Run"** to send a test request
-4. Use this test payload:
+```bash
+# SSH into RunPod
+cd /workspace/YOUR_REPO
+git pull
 
+# Restart server
+cd runpod_deployment
+conda activate deepseek-ocr
+python api_server.py
+```
+
+**No Docker uploads needed!** Updates take seconds, not hours.
+
+---
+
+## 💰 Cost Management
+
+**Start/Stop Strategy:**
+- Keep Pod stopped when not in use
+- Start only for testing/demos
+- Typical cost: $5-30/month vs $244/month for 24/7
+
+**To stop Pod:**
+1. Go to RunPod Console
+2. Find your Pod
+3. Click **"Stop"**
+
+**To restart:**
+1. Click **"Start"**
+2. SSH in and run `python api_server.py`
+
+---
+
+## 📡 API Endpoints
+
+### GET /
+Returns server status and available endpoints.
+
+### GET /health
+Returns health status, GPU availability, and model status.
+
+**Response:**
 ```json
 {
-  "input": {
-    "operation": "ocr",
-    "processor": "deepseek",
-    "image": "<paste-base64-encoded-image-here>"
-  }
+  "status": "healthy",
+  "model_loaded": true,
+  "cuda_available": true,
+  "device": "NVIDIA GeForce RTX 4090"
 }
 ```
 
-### Test from Your App
+### POST /ocr
+Upload image file for OCR processing.
 
-Run a simple test in Python:
+**Parameters:**
+- `file`: Image file (multipart/form-data)
+- `prompt_type`: "markdown" | "free" | "custom" (default: "markdown")
 
-```python
-import requests
-import base64
-from PIL import Image
-import io
+### POST /ocr_base64
+Send base64-encoded image for OCR processing.
 
-# Load and encode an image
-with open("test_image.png", "rb") as f:
-    image_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-# Send request to RunPod
-response = requests.post(
-    "https://api.runpod.ai/v2/your-endpoint-id/run",
-    headers={
-        "Authorization": "Bearer your-api-key",
-        "Content-Type": "application/json"
-    },
-    json={
-        "input": {
-            "operation": "ocr",
-            "processor": "deepseek",
-            "image": image_b64
-        }
-    },
-    timeout=300
-)
-
-print(response.json())
+**Request:**
+```json
+{
+  "image": "base64_encoded_image_string",
+  "prompt_type": "markdown"
+}
 ```
 
-### Test Your Full App
-
-```bash
-cd document_rag_back
-python -m main
-# Upload a document and test OCR
+**Response:**
+```json
+{
+  "success": true,
+  "text": "Extracted text...",
+  "processing_time": 1.23,
+  "prompt_used": "<image>\n<|grounding|>Convert the document to markdown."
+}
 ```
 
 ---
 
-## 💰 Cost Optimization Tips
+## 🔧 Configuration
 
-### 1. **Use Idle Timeout**
-   - Set to 5 seconds
-   - Pods shut down when not in use
-   - Start automatically on new requests
+### Prompt Types
 
-### 2. **Choose Right GPU**
-   - Start with RTX 4090 ($0.00020/sec)
-   - Only upgrade if you need more VRAM
+- **`markdown`**: Converts documents to structured markdown (best for documents)
+- **`free`**: Simple OCR without layout preservation
+- **`custom`**: Provide your own prompt via `custom_prompt` field
 
-### 3. **Batch Processing**
-   - Process multiple images in one request
-   - Reduces cold start overhead
+### Model Settings
 
-### 4. **Set Max Workers**
-   - Start with 1-3 workers
-   - Scale based on concurrent users
-
-### 5. **Monitor Usage**
-   - Check RunPod dashboard for costs
-   - Set budget alerts
-
----
-
-## 📊 Monitoring Your Endpoint
-
-### View Logs
-
-1. Go to RunPod dashboard
-2. Click your endpoint
-3. Click **"Logs"** tab
-4. See real-time logs from your handler
-
-### View Metrics
-
-1. Click **"Analytics"** tab
-2. See:
-   - Request count
-   - Success rate
-   - Average processing time
-   - Cost per request
+Edit `api_server.py` to customize:
+- `base_size`: Base resolution (default: 1024)
+- `image_size`: Dynamic resolution (default: 640)
+- `crop_mode`: Enable/disable cropping (default: True)
 
 ---
 
 ## 🐛 Troubleshooting
 
-### Endpoint Won't Start
+### Server won't start
+```bash
+# Check conda environment
+conda activate deepseek-ocr
 
-**Check logs** for errors:
-- Missing dependencies → Update `requirements.txt`
-- GPU not detected → Check CUDA version
-- Handler errors → Check `handler.py` syntax
+# Check PyTorch and CUDA
+python -c "import torch; print(torch.cuda.is_available())"
 
-### Slow First Request (Cold Start)
+# Check logs
+python api_server.py  # Run in foreground to see errors
+```
 
-**Normal behavior**:
-- First request takes 10-30 seconds (loading model)
-- Subsequent requests are fast (~1-2 seconds)
-- Use "Min Workers: 1" to keep one pod warm
+### Port not accessible
+1. Go to RunPod Console → Your Pod
+2. Click hamburger menu (☰) → "Edit Pod"
+3. Add `8000` to "Expose HTTP Ports"
+4. Pod will restart
 
-### Timeout Errors
+### Model download fails
+```bash
+# Install hf_transfer for faster downloads
+pip install hf_transfer
 
-**Increase timeout**:
-- In RunPod: Container Settings → Request Timeout
-- In your app: `RUNPOD_TIMEOUT = 600`
-
-### High Costs
-
-**Optimize**:
-- Lower idle timeout (5 seconds)
-- Reduce max workers
-- Choose cheaper GPU
-- Consider switching to local GPU for high volume
-
----
-
-## 🔄 Alternative: Secure Cloud Pod (Always Running)
-
-If you have **constant high volume**, rent a dedicated pod:
-
-### Setup:
-
-1. Go to **"Secure Cloud"** in RunPod
-2. Click **"+ GPU Cloud"**
-3. Select GPU and rent by the hour
-4. SSH into the pod:
-   ```bash
-   ssh root@pod-ip-address
-   ```
-5. Install dependencies and run a FastAPI server:
-   ```bash
-   pip install fastapi uvicorn deepseek-ocr
-   python api_server.py
-   ```
-6. Expose port 8000
-7. Use the pod's public IP as your endpoint
-
-**Cost**: ~$0.30-$2.00/hour (depending on GPU)
-
----
-
-## 📝 Summary
-
-**What you did:**
-1. ✅ Created Docker image with DeepSeek OCR
-2. ✅ Deployed to RunPod serverless
-3. ✅ Got API credentials
-4. ✅ Configured your app
-5. ✅ Tested the connection
-
-**Your app is now using remote GPU for OCR!** 🎉
-
-When you're ready to buy a local GPU, just change:
-```python
-USE_REMOTE_GPU = False
+# Restart server
+python api_server.py
 ```
 
 ---
 
-## 🆘 Need Help?
+## 📝 Files in This Directory
 
-- **RunPod Docs**: [docs.runpod.io](https://docs.runpod.io/)
-- **RunPod Discord**: [discord.gg/runpod](https://discord.gg/runpod)
-- **Support**: support@runpod.io
+- `api_server.py` - FastAPI server for DeepSeek OCR
+- `requirements.txt` - Python dependencies
+- `README.md` - This file
 
 ---
 
-## 📈 Estimated Costs
+## 🔗 Integrating with Your App
 
-Assuming **RTX 4090** at $0.00020/sec:
+Update your local app's `config.py`:
 
-| Usage | Time/Request | Requests/Day | Cost/Day | Cost/Month |
-|-------|--------------|--------------|----------|------------|
-| Light | 2 seconds | 50 | $0.02 | $0.60 |
-| Medium | 2 seconds | 500 | $0.20 | $6.00 |
-| Heavy | 2 seconds | 5000 | $2.00 | $60.00 |
+```python
+# GPU / Remote compute configuration
+USE_REMOTE_GPU: bool = True
+RUNPOD_ENDPOINT: Optional[str] = "https://YOUR-POD-ID-8000.proxy.runpod.net"
+OCR_ENGINE: str = "deepseek"
+```
 
-**Cold starts** add 10-30 seconds for the first request after idle period.
+Your app will automatically send OCR requests to RunPod!
 
-With idle timeout, you only pay when actually processing!
+---
+
+## 📚 Additional Resources
+
+- [RunPod Docs](https://docs.runpod.io/)
+- [DeepSeek-OCR GitHub](https://github.com/deepseek-ai/DeepSeek-OCR)
+- [FastAPI Docs](https://fastapi.tiangolo.com/)
+
+---
+
+## 💡 Tips
+
+1. **Keep Pod running during active development**, stop overnight
+2. **Model is cached** - subsequent starts are faster
+3. **Monitor RunPod credits** to avoid unexpected charges
+4. **Use git branches** for testing changes before production
+5. **Consider snapshot/backup** of /workspace for quick recovery
+
+---
+
+**Need help?** Check RunPod Discord or open an issue in your repository.
