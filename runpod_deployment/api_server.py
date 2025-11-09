@@ -65,16 +65,20 @@ async def health():
     }
 
 def get_prompt(prompt_type: str, custom_prompt: Optional[str] = None) -> str:
-    """Generate prompt based on type"""
+    """Generate prompt based on type
+
+    NOTE: Do NOT use <|grounding|> token - it outputs bounding boxes instead of clean text!
+    """
     if prompt_type == "custom" and custom_prompt:
         return f"<image>\n{custom_prompt}"
     elif prompt_type == "markdown":
-        return "<image>\n<|grounding|>Convert the document to markdown."
+        # Remove <|grounding|> - it causes bbox output instead of clean text
+        return "<image>\nConvert the document to markdown format."
     elif prompt_type == "free":
-        return "<image>\nFree OCR."
+        return "<image>\nPerform OCR on this document."
     else:
         # Default to markdown for documents
-        return "<image>\n<|grounding|>Convert the document to markdown."
+        return "<image>\nConvert the document to markdown format."
 
 @app.post("/ocr")
 async def ocr_endpoint(
@@ -180,7 +184,8 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
                 image_size=1024,  # Match base_size for single resolution
                 crop_mode=False,  # FALSE = single pass, much faster!
                 save_results=False,
-                test_compress=False  # Disable compression for simpler output
+                test_compress=False,  # Disable compression for simpler output
+                max_new_tokens=4096,  # Limit generation to speed up (default is unlimited)
             )
             print("OCR inference completed!")
             print(f"DEBUG: Result type: {type(result)}")
