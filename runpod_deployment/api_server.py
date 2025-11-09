@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
+from contextlib import asynccontextmanager
 import uvicorn
 from PIL import Image
 import io
@@ -14,15 +15,8 @@ import tempfile
 import sys
 from io import StringIO
 
-app = FastAPI(title="DeepSeek OCR API")
-
 model = None
 tokenizer = None
-
-class Base64ImageRequest(BaseModel):
-    image: str
-    prompt_type: str = "free"
-    custom_prompt: Optional[str] = None
 
 def load_model():
     global model, tokenizer
@@ -37,9 +31,17 @@ def load_model():
 
     print("Model loaded successfully!")
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     load_model()
+    yield
+
+app = FastAPI(title="DeepSeek OCR API", lifespan=lifespan)
+
+class Base64ImageRequest(BaseModel):
+    image: str
+    prompt_type: str = "free"
+    custom_prompt: Optional[str] = None
 
 @app.get("/health")
 async def health():
