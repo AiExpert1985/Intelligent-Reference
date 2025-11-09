@@ -2,6 +2,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
+import re
 import uvicorn
 from PIL import Image
 import io
@@ -207,28 +208,50 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
             print("OCR inference completed!")
             print(f"DEBUG: Captured {len(streamed_text)} characters from stdout")
 
-            # Clean the output - remove debug messages that aren't part of OCR result
+            # Clean the output - remove debug messages and any special tokens
             text_result = streamed_text.strip() if streamed_text else ""
 
-            # Remove common debug output lines
-            lines_to_remove = [
-                "=====================",
-                "BASE:",
-                "NO PATCHES",
-                "PATCHES",
-                "torch.Size"
-            ]
+            def _clean_deepseek_output(raw_text: str) -> str:
+                """Normalise DeepSeek streaming output into plain text."""
+                if not raw_text:
+                    return ""
 
-            cleaned_lines = []
-            for line in text_result.split('\n'):
-                # Skip lines containing debug markers
-                if any(marker in line for marker in lines_to_remove):
-                    continue
-                # Skip empty lines
-                if line.strip():
-                    cleaned_lines.append(line)
+                # Remove known debug banners
+                lines_to_remove = (
+                    "=====================",
+                    "BASE:",
+                    "NO PATCHES",
+                    "PATCHES",
+                    "torch.Size",
+                )
 
-            text_result = '\n'.join(cleaned_lines)
+                kept_lines = []
+                for line in raw_text.splitlines():
+                    if any(marker in line for marker in lines_to_remove):
+                        continue
+                    stripped = line.strip()
+                    if stripped:
+                        kept_lines.append(stripped)
+
+                cleaned = "\n".join(kept_lines)
+
+                # Strip DeepSeek special tokens (defensive - Free OCR shouldn't produce these)
+                cleaned = re.sub(r"<\|.*?\|>", "", cleaned)
+
+                # Remove detection coordinates (defensive)
+                cleaned = re.sub(r"\[\s*\[[^\]]*\]\s*\]", "", cleaned)
+
+                # Collapse multiple spaces
+                cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+
+                # Normalise blank lines
+                cleaned = re.sub(r"\n{2,}", "\n", cleaned)
+
+                # Final cleanup
+                final_lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+                return "\n".join(final_lines)
+
+            text_result = _clean_deepseek_output(text_result)
 
             if text_result:
                 print(f"✓ Got OCR result: {len(text_result)} characters")
