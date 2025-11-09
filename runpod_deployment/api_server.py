@@ -185,7 +185,6 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
                 crop_mode=False,  # FALSE = single pass, much faster!
                 save_results=False,
                 test_compress=False,  # Disable compression for simpler output
-                max_new_tokens=4096,  # Limit generation to speed up (default is unlimited)
             )
             print("OCR inference completed!")
             print(f"DEBUG: Result type: {type(result)}")
