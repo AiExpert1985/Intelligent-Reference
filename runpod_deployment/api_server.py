@@ -67,18 +67,18 @@ async def health():
 def get_prompt(prompt_type: str, custom_prompt: Optional[str] = None) -> str:
     """Generate prompt based on type
 
-    NOTE: Do NOT use <|grounding|> token - it outputs bounding boxes instead of clean text!
+    NOTE: Using simple prompts that work with DeepSeek-OCR inference
     """
     if prompt_type == "custom" and custom_prompt:
         return f"<image>\n{custom_prompt}"
     elif prompt_type == "markdown":
-        # Remove <|grounding|> - it causes bbox output instead of clean text
-        return "<image>\nConvert the document to markdown format."
+        # Simple prompt for markdown conversion
+        return "<image>\nRead and convert this document to markdown format."
     elif prompt_type == "free":
-        return "<image>\nPerform OCR on this document."
+        return "<image>\nRead the text from this document."
     else:
-        # Default to markdown for documents
-        return "<image>\nConvert the document to markdown format."
+        # Default to simple OCR
+        return "<image>\nRead the text from this document."
 
 @app.post("/ocr")
 async def ocr_endpoint(
@@ -172,16 +172,16 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
             print(f"📝 Using prompt: {prompt[:100]}...")
 
             # Run OCR inference
-            # Using base mode (1024x1024) for balance of speed and quality
-            # crop_mode=False for single-pass processing (much faster!)
+            # Using smaller 512x512 base for faster processing (under 2 min proxy limit)
+            # crop_mode=False for single-pass processing
             print("Starting DeepSeek OCR inference...")
             result = model.infer(
                 tokenizer,
                 prompt=prompt,
                 image_file=temp_image_path,
                 output_path=temp_dir,
-                base_size=1024,  # Base: 1024x1024 (256 vision tokens)
-                image_size=1024,  # Match base_size for single resolution
+                base_size=512,  # Smaller: 512x512 (64 vision tokens) for speed
+                image_size=512,  # Match base_size for single resolution
                 crop_mode=False,  # FALSE = single pass, much faster!
                 save_results=False,
                 test_compress=False,  # Disable compression for simpler output
