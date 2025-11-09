@@ -13,6 +13,7 @@ matplotlib>=3.0.0
 # Standard
 pydantic>=2.0.0
 
-# Note: Install separately with --no-build-isolation:
-# pip install flash-attn==2.7.3 --no-build-isolation
+# CRITICAL: Flash Attention must be installed for fast inference
+# Install with: pip install flash-attn==2.7.3 --no-build-isolation
+# Without this, inference will be 2-5x slower and may timeout
 

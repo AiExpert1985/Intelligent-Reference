@@ -68,21 +68,21 @@ async def upload_document(
     logger = logging.getLogger("alfahras")
 
     logger.info("=" * 80)
-    logger.info("📤 UPLOAD ENDPOINT CALLED")
-    logger.info(f"📁 Filename: {file.filename}")
-    logger.info(f"📋 Content-Type: {file.content_type}")
-    logger.info(f"📏 Size: {file.size if hasattr(file, 'size') else 'unknown'}")
+    logger.info("[UPLOAD] Endpoint called")
+    logger.info(f"[UPLOAD] Filename: {file.filename}")
+    logger.info(f"[UPLOAD] Content-Type: {file.content_type}")
+    logger.info(f"[UPLOAD] Size: {file.size if hasattr(file, 'size') else 'unknown'}")
     logger.info("=" * 80)
 
     try:
-        logger.info("🚀 Calling rag_service.process_document()...")
+        logger.info("[UPLOAD] Calling rag_service.process_document()...")
         result = await rag_service.process_document(file)
-        logger.info(f"✅ Document processed successfully: {result.document_id}")
+        logger.info(f"[UPLOAD] Document processed successfully: {result.document_id}")
         logger.info("=" * 80)
         return result
     except Exception as e:
         logger.error("=" * 80)
-        logger.error(f"❌ ERROR in upload_document endpoint: {str(e)}")
+        logger.error(f"[ERROR] In upload_document endpoint: {str(e)}")
         logger.error(f"Error type: {type(e).__name__}")
         import traceback
         logger.error(traceback.format_exc())

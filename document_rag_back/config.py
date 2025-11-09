@@ -68,8 +68,14 @@ class Settings(BaseSettings):
     # GPU / Remote compute configuration
     USE_REMOTE_GPU: bool = True
     RUNPOD_API_KEY: Optional[str] = "dummy-key"  # Not required for our FastAPI server
+
+    # IMPORTANT: RunPod proxy URL has a 2-minute hard timeout
+    # For longer inference (DeepSeek OCR can take >2 min), use direct pod IP:
+    # Get direct IP: RunPod Web UI -> Your Pod -> Connect -> TCP Port Mappings
+    # Format: "http://XX.runpod.io:XXXXX" or "http://XX.XXX.XX.XX:XXXXX"
     RUNPOD_ENDPOINT: Optional[str] = "https://cc2fvkaqbqnrf5-8000.proxy.runpod.net"
-    RUNPOD_TIMEOUT: int = 600  # Increased to 10 minutes for large images
+
+    RUNPOD_TIMEOUT: int = 600  # Timeout for direct connection (proxy ignores this)
     LOCAL_GPU_DEVICE: str = "cuda"
 
     # Search quality controls
