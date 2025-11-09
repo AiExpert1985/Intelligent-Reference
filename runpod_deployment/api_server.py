@@ -67,18 +67,19 @@ async def health():
 def get_prompt(prompt_type: str, custom_prompt: Optional[str] = None) -> str:
     """Generate prompt based on type
 
-    NOTE: Using simple prompts that work with DeepSeek-OCR inference
+    Using OFFICIAL DeepSeek-OCR prompt formats from documentation
     """
     if prompt_type == "custom" and custom_prompt:
         return f"<image>\n{custom_prompt}"
     elif prompt_type == "markdown":
-        # Simple prompt for markdown conversion
-        return "<image>\nRead and convert this document to markdown format."
+        # Official prompt for document to markdown conversion
+        return "<image>\n<|grounding|>Convert the document to markdown."
     elif prompt_type == "free":
-        return "<image>\nRead the text from this document."
+        # Official prompt for layout-free OCR
+        return "<image>\nFree OCR."
     else:
-        # Default to simple OCR
-        return "<image>\nRead the text from this document."
+        # Default to markdown for documents
+        return "<image>\n<|grounding|>Convert the document to markdown."
 
 @app.post("/ocr")
 async def ocr_endpoint(
@@ -172,19 +173,19 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
             print(f"📝 Using prompt: {prompt[:100]}...")
 
             # Run OCR inference
-            # Using smaller 512x512 base for faster processing (under 2 min proxy limit)
-            # crop_mode=False for single-pass processing
+            # Using "Base" mode (1024x1024, crop_mode=False) for balance of speed and quality
+            # This avoids the multi-crop overhead of "Gundam" mode while maintaining accuracy
             print("Starting DeepSeek OCR inference...")
             result = model.infer(
                 tokenizer,
                 prompt=prompt,
                 image_file=temp_image_path,
                 output_path=temp_dir,
-                base_size=512,  # Smaller: 512x512 (64 vision tokens) for speed
-                image_size=512,  # Match base_size for single resolution
-                crop_mode=False,  # FALSE = single pass, much faster!
+                base_size=1024,  # Base mode: 1024x1024 (256 vision tokens)
+                image_size=1024,  # Match base_size for single resolution
+                crop_mode=False,  # Single pass processing (faster than Gundam mode)
                 save_results=False,
-                test_compress=False,  # Disable compression for simpler output
+                test_compress=False,
             )
             print("OCR inference completed!")
             print(f"DEBUG: Result type: {type(result)}")
