@@ -67,19 +67,20 @@ async def health():
 def get_prompt(prompt_type: str, custom_prompt: Optional[str] = None) -> str:
     """Generate prompt based on type
 
-    Using OFFICIAL DeepSeek-OCR prompt formats from documentation
+    Official DeepSeek-OCR prompts:
+    - Free OCR: Returns clean text without bounding boxes
+    - Grounding: Returns text WITH bounding box coordinates
     """
     if prompt_type == "custom" and custom_prompt:
         return f"<image>\n{custom_prompt}"
     elif prompt_type == "markdown":
-        # Official prompt for document to markdown conversion
-        return "<image>\n<|grounding|>Convert the document to markdown."
+        # Use Free OCR for clean text output (no bounding boxes)
+        return "<image>\nFree OCR."
     elif prompt_type == "free":
-        # Official prompt for layout-free OCR
         return "<image>\nFree OCR."
     else:
-        # Default to markdown for documents
-        return "<image>\n<|grounding|>Convert the document to markdown."
+        # Default to Free OCR for clean text
+        return "<image>\nFree OCR."
 
 @app.post("/ocr")
 async def ocr_endpoint(
@@ -204,22 +205,38 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
             streamed_text = captured_stdout.getvalue()
 
             print("OCR inference completed!")
-            print(f"DEBUG: infer() return type: {type(result)}")
             print(f"DEBUG: Captured {len(streamed_text)} characters from stdout")
 
-            # The actual text is in the captured stdout, not the return value
-            text_result = streamed_text.strip() if streamed_text else None
+            # Clean the output - remove debug messages that aren't part of OCR result
+            text_result = streamed_text.strip() if streamed_text else ""
 
-            # Clean up the output - remove special tokens and keep only the actual text
+            # Remove common debug output lines
+            lines_to_remove = [
+                "=====================",
+                "BASE:",
+                "NO PATCHES",
+                "PATCHES",
+                "torch.Size"
+            ]
+
+            cleaned_lines = []
+            for line in text_result.split('\n'):
+                # Skip lines containing debug markers
+                if any(marker in line for marker in lines_to_remove):
+                    continue
+                # Skip empty lines
+                if line.strip():
+                    cleaned_lines.append(line)
+
+            text_result = '\n'.join(cleaned_lines)
+
             if text_result:
-                # The streamed output contains the raw generation with special tokens
-                # We need to extract just the text content
-                print(f"✓ Got streamed output: {len(text_result)} characters")
+                print(f"✓ Got OCR result: {len(text_result)} characters")
                 print(f"First 200 chars: {text_result[:200]}")
             else:
-                print("WARNING: No output captured from stdout")
+                print("WARNING: No text captured from stdout")
 
-            result = text_result or ""
+            result = text_result
 
         processing_time = time.time() - start_time
         result_length = len(result) if result else 0
