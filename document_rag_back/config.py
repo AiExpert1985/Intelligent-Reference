@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # GPU / Remote compute configuration
     USE_REMOTE_GPU: bool = True
     RUNPOD_API_KEY: Optional[str] = "dummy-key"  # Not required for our FastAPI server
-    RUNPOD_ENDPOINT: Optional[str] = "https://utokqyhfsjpy26-8000.proxy.runpod.net"
+    RUNPOD_ENDPOINT: Optional[str] = "https://cc2fvkaqbqnrf5-8000.proxy.runpod.net"
     RUNPOD_TIMEOUT: int = 300
     LOCAL_GPU_DEVICE: str = "cuda"
 
