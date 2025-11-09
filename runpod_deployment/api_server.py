@@ -173,8 +173,7 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
             print(f"📝 Using prompt: {prompt[:100]}...")
 
             # Run OCR inference
-            # Using "Base" mode (1024x1024, crop_mode=False) for balance of speed and quality
-            # This avoids the multi-crop overhead of "Gundam" mode while maintaining accuracy
+            # Disable streaming mode to get text returned directly instead of stdout
             print("Starting DeepSeek OCR inference...")
             result = model.infer(
                 tokenizer,
@@ -184,66 +183,37 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
                 base_size=1024,  # Base mode: 1024x1024 (256 vision tokens)
                 image_size=1024,  # Match base_size for single resolution
                 crop_mode=False,  # Single pass processing (faster than Gundam mode)
-                save_results=True,  # MUST be True - infer() saves to files, doesn't return text!
+                save_results=False,
                 test_compress=False,
+                stream=False,  # CRITICAL: Disable streaming to get returned text instead of stdout
             )
             print("OCR inference completed!")
-            print(f"DEBUG: infer() return value type: {type(result)}")
-            print(f"DEBUG: infer() return value: {repr(result)[:200] if result else 'None'}")
+            print(f"DEBUG: infer() return type: {type(result)}")
 
-            # The infer() method saves results to files instead of returning text
-            # Look for common output file patterns
-            import glob
-            output_files = glob.glob(f"{temp_dir}/*")
-            print(f"DEBUG: Files in output dir: {output_files}")
-
-            # Read the OCR result from saved files
+            # Extract text from result structure
             text_result = None
+            if result:
+                print(f"DEBUG: infer() returned: {type(result)}")
+                if isinstance(result, str):
+                    text_result = result
+                    print(f"✓ Got string result: {len(text_result)} characters")
+                elif isinstance(result, dict):
+                    # Try common keys from DeepSeek output
+                    for key in ['text', 'markdown', 'result', 'output']:
+                        if key in result:
+                            text_result = result[key]
+                            print(f"✓ Got text from result['{key}']: {len(text_result)} characters")
+                            break
+                    if not text_result:
+                        print(f"WARNING: Dict result but no text key found. Keys: {list(result.keys())}")
+                        print(f"Full result: {result}")
+                else:
+                    print(f"WARNING: Unexpected result type: {type(result)}")
+                    print(f"Result repr: {repr(result)[:500]}")
+                    text_result = str(result)
+            else:
+                print("WARNING: infer() returned None - stream=False may not be supported")
 
-            # Try common DeepSeek output file patterns
-            for pattern in ['result.mmd', 'result_ori.mmd', 'result.txt', 'images']:
-                file_path = os.path.join(temp_dir, pattern)
-                if os.path.exists(file_path) and os.path.isfile(file_path):
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read().strip()
-                            if content and len(content) > 0:
-                                text_result = content
-                                print(f"✓ Found OCR result in {pattern}: {len(content)} characters")
-                                break
-                    except Exception as e:
-                        print(f"  ! Error reading {pattern}: {e}")
-
-            # If no result found in known files, list all files and try to read them
-            if not text_result:
-                print("WARNING: No result in expected files. Checking all output files...")
-                for fpath in output_files:
-                    fname = os.path.basename(fpath)
-                    fsize = os.path.getsize(fpath) if os.path.isfile(fpath) else 0
-                    print(f"  - {fname} ({fsize} bytes)")
-
-                    # Skip input image
-                    if fname == 'input_image.jpg':
-                        continue
-
-                    # Try reading any text files
-                    if os.path.isfile(fpath) and fsize > 0:
-                        try:
-                            with open(fpath, 'r', encoding='utf-8') as f:
-                                content = f.read().strip()
-                                if content and len(content) > 0:
-                                    text_result = content
-                                    print(f"✓ Found text in {fname}: {len(content)} characters")
-                                    break
-                        except Exception as e:
-                            print(f"  ! Could not read {fname} as text: {e}")
-
-            # Use the result from infer() as fallback (if it returned something)
-            if not text_result and result:
-                text_result = str(result)
-                print("Using infer() return value as result")
-
-            # Final result
             result = text_result or ""
 
         processing_time = time.time() - start_time
