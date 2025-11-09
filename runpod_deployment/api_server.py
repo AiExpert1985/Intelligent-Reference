@@ -1,8 +1,7 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
-import re
 import uvicorn
 from PIL import Image
 import io
@@ -12,285 +11,112 @@ import os
 import torch
 from transformers import AutoModel, AutoTokenizer
 import tempfile
-import shutil
+import sys
+from io import StringIO
 
 app = FastAPI(title="DeepSeek OCR API")
 
-# Global model and tokenizer
 model = None
 tokenizer = None
 
 class Base64ImageRequest(BaseModel):
-    image: str  # base64 encoded image
-    prompt_type: str = "markdown"  # "markdown", "free", or "custom"
+    image: str
+    prompt_type: str = "free"
     custom_prompt: Optional[str] = None
 
 def load_model():
-    """Load DeepSeek-OCR model and tokenizer"""
     global model, tokenizer
-
     print("Loading DeepSeek-OCR model...")
-    model_name = 'deepseek-ai/DeepSeek-OCR'
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/DeepSeek-OCR', trust_remote_code=True)
     model = AutoModel.from_pretrained(
-        model_name,
-        _attn_implementation='flash_attention_2',
+        'deepseek-ai/DeepSeek-OCR',
         trust_remote_code=True,
-        use_safetensors=True
-    )
-    model = model.eval().cuda().to(torch.bfloat16)
+        torch_dtype=torch.bfloat16
+    ).eval().cuda()
 
     print("Model loaded successfully!")
 
 @app.on_event("startup")
 async def startup_event():
-    """Load model on startup"""
     load_model()
-
-@app.get("/")
-async def root():
-    return {
-        "status": "DeepSeek OCR API is running",
-        "endpoints": ["/ocr", "/ocr_base64", "/health"],
-        "model": "deepseek-ai/DeepSeek-OCR"
-    }
 
 @app.get("/health")
 async def health():
     return {
         "status": "healthy",
         "model_loaded": model is not None,
-        "cuda_available": torch.cuda.is_available(),
         "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
     }
 
 def get_prompt(prompt_type: str, custom_prompt: Optional[str] = None) -> str:
-    """Generate prompt based on type
-
-    Official DeepSeek-OCR prompts:
-    - Free OCR: Returns clean text without bounding boxes
-    - Grounding: Returns text WITH bounding box coordinates
-    """
-    if prompt_type == "custom" and custom_prompt:
+    if custom_prompt:
         return f"<image>\n{custom_prompt}"
-    elif prompt_type == "markdown":
-        # Use Free OCR for clean text output (no bounding boxes)
-        return "<image>\nFree OCR."
-    elif prompt_type == "free":
-        return "<image>\nFree OCR."
-    else:
-        # Default to Free OCR for clean text
-        return "<image>\nFree OCR."
-
-@app.post("/ocr")
-async def ocr_endpoint(
-    file: UploadFile = File(...),
-    prompt_type: str = "markdown"
-):
-    """
-    OCR endpoint that accepts image file upload
-
-    Args:
-        file: Image file (jpg, png, etc.)
-        prompt_type: Type of prompt - "markdown", "free", or "custom"
-    """
-    if model is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-
-    try:
-        start_time = time.time()
-
-        # Create temporary directory for this request
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Save uploaded file temporarily
-            temp_image_path = os.path.join(temp_dir, "input_image.jpg")
-            with open(temp_image_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-
-            # Get prompt
-            prompt = get_prompt(prompt_type)
-
-            # Run OCR inference
-            result = model.infer(
-                tokenizer,
-                prompt=prompt,
-                image_file=temp_image_path,
-                output_path=temp_dir,
-                base_size=1024,
-                image_size=640,
-                crop_mode=True,
-                save_results=False,  # Don't save intermediate results
-                test_compress=True
-            )
-
-        processing_time = time.time() - start_time
-
-        return JSONResponse({
-            "success": True,
-            "text": result,
-            "processing_time": processing_time,
-            "prompt_used": prompt
-        })
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
+    return "<image>\nFree OCR."
 
 @app.post("/ocr_base64")
-async def ocr_base64_endpoint(request: Base64ImageRequest):
-    """
-    OCR endpoint that accepts base64 encoded image
-
-    Args:
-        request: JSON with base64 image and optional prompt_type
-    """
-    print("=" * 80)
-    print("🔔 NEW OCR REQUEST RECEIVED")
-    print(f"📋 Prompt type: {request.prompt_type}")
-    print(f"📦 Image size (base64): {len(request.image) / 1024:.1f} KB")
-    print("=" * 80)
-
+async def ocr_base64(request: Base64ImageRequest):
     if model is None:
-        print("❌ ERROR: Model not loaded!")
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     try:
-        start_time = time.time()
+        start = time.time()
 
-        # Decode base64 image
-        print("🔓 Decoding base64 image...")
+        # Decode image
         image_data = base64.b64decode(request.image)
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
-        print(f"🖼️  Image decoded: {image.size} pixels, mode={image.mode}")
 
-        # Create temporary directory for this request
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Save image temporarily
-            temp_image_path = os.path.join(temp_dir, "input_image.jpg")
-            image.save(temp_image_path)
-            print(f"💾 Image saved to: {temp_image_path}")
+            # Save image
+            img_path = os.path.join(temp_dir, "input.jpg")
+            image.save(img_path)
 
             # Get prompt
             prompt = get_prompt(request.prompt_type, request.custom_prompt)
-            print(f"📝 Using prompt: {prompt[:100]}...")
 
-            # Run OCR inference
-            # DeepSeek streams output to stdout - we need to capture it
-            print("Starting DeepSeek OCR inference...")
-
-            # Capture stdout to get the streamed text
-            import sys
-            from io import StringIO
-
-            captured_stdout = StringIO()
-            original_stdout = sys.stdout
-            sys.stdout = captured_stdout
+            # Capture stdout (model prints to stdout, doesn't return)
+            captured = StringIO()
+            sys.stdout = captured
 
             try:
-                result = model.infer(
+                model.infer(
                     tokenizer,
                     prompt=prompt,
-                    image_file=temp_image_path,
+                    image_file=img_path,
                     output_path=temp_dir,
-                    base_size=1024,  # Base mode: 1024x1024 (256 vision tokens)
-                    image_size=1024,  # Match base_size for single resolution
-                    crop_mode=False,  # Single pass processing (faster than Gundam mode)
+                    base_size=1024,
+                    image_size=1024,
+                    crop_mode=False,
                     save_results=False,
                     test_compress=False,
                 )
             finally:
-                # Always restore stdout
-                sys.stdout = original_stdout
+                sys.stdout = sys.__stdout__
 
-            # Get the captured text
-            streamed_text = captured_stdout.getvalue()
+            # Extract text from stdout
+            raw_text = captured.getvalue()
 
-            print("OCR inference completed!")
-            print(f"DEBUG: Captured {len(streamed_text)} characters from stdout")
+            # Clean: remove debug lines
+            lines = [
+                line.strip()
+                for line in raw_text.split('\n')
+                if line.strip() and not any(x in line for x in ['===', 'BASE:', 'PATCHES', 'torch.Size'])
+            ]
 
-            # Clean the output - remove debug messages and any special tokens
-            text_result = streamed_text.strip() if streamed_text else ""
+            result = '\n'.join(lines)
 
-            def _clean_deepseek_output(raw_text: str) -> str:
-                """Normalise DeepSeek streaming output into plain text."""
-                if not raw_text:
-                    return ""
-
-                # Remove known debug banners
-                lines_to_remove = (
-                    "=====================",
-                    "BASE:",
-                    "NO PATCHES",
-                    "PATCHES",
-                    "torch.Size",
-                )
-
-                kept_lines = []
-                for line in raw_text.splitlines():
-                    if any(marker in line for marker in lines_to_remove):
-                        continue
-                    stripped = line.strip()
-                    if stripped:
-                        kept_lines.append(stripped)
-
-                cleaned = "\n".join(kept_lines)
-
-                # Strip DeepSeek special tokens (defensive - Free OCR shouldn't produce these)
-                cleaned = re.sub(r"<\|.*?\|>", "", cleaned)
-
-                # Remove detection coordinates (defensive)
-                cleaned = re.sub(r"\[\s*\[[^\]]*\]\s*\]", "", cleaned)
-
-                # Collapse multiple spaces
-                cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-
-                # Normalise blank lines
-                cleaned = re.sub(r"\n{2,}", "\n", cleaned)
-
-                # Final cleanup
-                final_lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
-                return "\n".join(final_lines)
-
-            text_result = _clean_deepseek_output(text_result)
-
-            if text_result:
-                print(f"✓ Got OCR result: {len(text_result)} characters")
-                print(f"First 200 chars: {text_result[:200]}")
-            else:
-                print("WARNING: No text captured from stdout")
-
-            result = text_result
-
-        processing_time = time.time() - start_time
-        result_length = len(result) if result else 0
-
-        print(f"Processing time: {processing_time:.2f}s")
-        print(f"Result length: {result_length} characters")
-        if result_length > 0:
-            print(f"First 100 chars: {result[:100]}")
-        else:
-            print("WARNING: DeepSeek returned EMPTY or None result!")
-            print(f"Result value: {result}")
-        print("=" * 80)
+        elapsed = time.time() - start
+        print(f"OCR completed: {len(result)} chars in {elapsed:.1f}s")
 
         return JSONResponse({
             "success": True,
             "text": result,
-            "processing_time": processing_time,
-            "prompt_used": prompt
+            "processing_time": elapsed,
         })
 
     except Exception as e:
-        print(f"❌ ERROR during OCR processing: {str(e)}")
-        print(f"Error type: {type(e).__name__}")
-        import traceback
-        traceback.print_exc()
-        print("=" * 80)
-        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    # Set CUDA device
-    os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-
-    # Run server
     uvicorn.run(app, host="0.0.0.0", port=8000)
