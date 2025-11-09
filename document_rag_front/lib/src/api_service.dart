@@ -37,15 +37,15 @@ class ApiException implements Exception {
 class ApiService {
   final Dio _dio;
 
-  // Prefer the remote server unless local development is explicitly requested.
+  // Prefer the local server for development.
   static const String _localBaseUrl = 'http://127.0.0.1:8000';
   static const String _remoteBaseUrl = String.fromEnvironment(
     'REMOTE_API_BASE',
-    defaultValue: 'http://100.127.26.110:8000',
+    defaultValue: 'http://127.0.0.1:8000',  // Changed to localhost
   );
   static const bool _preferLocal = bool.fromEnvironment(
     'PREFER_LOCAL_API',
-    defaultValue: false,
+    defaultValue: true,  // Changed to true - prefer local by default
   );
 
   ApiService()
