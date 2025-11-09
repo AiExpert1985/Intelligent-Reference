@@ -346,14 +346,14 @@ class RemoteGPUBackend(GPUBackend):
 
         # Log image details
         image_size = pil_image.size
-        logger.info(f"🖼️  Preparing to send image to RunPod: size={image_size}, source={source}")
+        logger.info(f"[RUNPOD] Preparing to send image to RunPod: size={image_size}, source={source}")
 
         buffer = io.BytesIO()
         pil_image.save(buffer, format="PNG")
         image_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
         image_kb = len(image_b64) / 1024
-        logger.info(f"📦 Image encoded: {image_kb:.1f} KB base64")
+        logger.info(f"[RUNPOD] Image encoded: {image_kb:.1f} KB base64")
 
         # Payload format for our FastAPI server
         payload = {
@@ -362,7 +362,7 @@ class RemoteGPUBackend(GPUBackend):
         }
 
         start = time.time()
-        logger.info(f"🚀 Sending OCR request to RunPod: {self.endpoint}/ocr_base64")
+        logger.info(f"[RUNPOD] Sending OCR request to RunPod: {self.endpoint}/ocr_base64")
 
         try:
             response = self._session.post(
@@ -371,23 +371,25 @@ class RemoteGPUBackend(GPUBackend):
                 timeout=self.timeout,
             )
 
-            logger.info(f"📡 RunPod response status: {response.status_code}")
+            logger.info(f"[RUNPOD] RunPod response status: {response.status_code}")
 
             response.raise_for_status()
             result = response.json()
 
             elapsed = time.time() - start
-            logger.info(f"✅ RunPod OCR completed in {elapsed:.2f}s")
+            logger.info(f"[RUNPOD] RunPod OCR completed in {elapsed:.2f}s")
+            logger.info(f"[RUNPOD] Response keys: {list(result.keys())}")
+            logger.info(f"[RUNPOD] Response success: {result.get('success')}")
 
         except requests.Timeout as exc:
-            logger.error(f"⏱️  RunPod request TIMEOUT after {self.timeout}s: {exc}")
+            logger.error(f"[RUNPOD] RunPod request TIMEOUT after {self.timeout}s: {exc}")
             raise RuntimeError(f"RunPod request timeout after {self.timeout}s") from exc
         except requests.HTTPError as exc:
-            logger.error(f"❌ RunPod HTTP error {response.status_code}: {exc}")
+            logger.error(f"[RUNPOD] RunPod HTTP error {response.status_code}: {exc}")
             logger.error(f"Response body: {response.text[:500]}")
             raise RuntimeError(f"RunPod HTTP error {response.status_code}: {exc}") from exc
         except requests.RequestException as exc:
-            logger.error(f"❌ RunPod request failed: {exc}")
+            logger.error(f"[RUNPOD] RunPod request failed: {exc}")
             raise RuntimeError(f"Remote GPU request failed: {exc}") from exc
 
         # Parse the FastAPI server response
@@ -395,9 +397,13 @@ class RemoteGPUBackend(GPUBackend):
         text = str(result.get("text", ""))
         text_length = len(text)
 
-        logger.info(f"📝 Extracted text: {text_length} characters")
+        logger.info(f"[RUNPOD] Extracted text: {text_length} characters")
+        logger.info(f"[RUNPOD] Text type: {type(result.get('text'))}")
         if text_length > 0:
-            logger.debug(f"First 100 chars: {text[:100]}")
+            logger.info(f"First 100 chars: {text[:100]}")
+        else:
+            logger.warning(f"[RUNPOD] WARNING: DeepSeek returned EMPTY text!")
+            logger.warning(f"[RUNPOD] Full response: {result}")
 
         # Note: Our FastAPI server returns plain text, not structured lines
         # We'll parse it into lines for compatibility

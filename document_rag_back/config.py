@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     USE_REMOTE_GPU: bool = True
     RUNPOD_API_KEY: Optional[str] = "dummy-key"  # Not required for our FastAPI server
     RUNPOD_ENDPOINT: Optional[str] = "https://cc2fvkaqbqnrf5-8000.proxy.runpod.net"
-    RUNPOD_TIMEOUT: int = 300
+    RUNPOD_TIMEOUT: int = 600  # Increased to 10 minutes for large images
     LOCAL_GPU_DEVICE: str = "cuda"
 
     # Search quality controls

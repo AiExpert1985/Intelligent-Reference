@@ -167,7 +167,7 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
             print(f"📝 Using prompt: {prompt[:100]}...")
 
             # Run OCR inference
-            print("🚀 Starting DeepSeek OCR inference...")
+            print("Starting DeepSeek OCR inference...")
             result = model.infer(
                 tokenizer,
                 prompt=prompt,
@@ -179,15 +179,29 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
                 save_results=False,
                 test_compress=True
             )
-            print("✅ OCR inference completed!")
+            print("OCR inference completed!")
+            print(f"DEBUG: Result type: {type(result)}")
+            print(f"DEBUG: Result repr: {repr(result)[:200]}")
+            if hasattr(result, '__dict__'):
+                print(f"DEBUG: Result attributes: {dir(result)}")
+
+            # Check if DeepSeek saved files
+            import glob
+            output_files = glob.glob(f"{temp_dir}/*")
+            print(f"DEBUG: Files in output dir: {output_files}")
+            for fpath in output_files:
+                print(f"  - {os.path.basename(fpath)} ({os.path.getsize(fpath)} bytes)")
 
         processing_time = time.time() - start_time
         result_length = len(result) if result else 0
 
-        print(f"⏱️  Processing time: {processing_time:.2f}s")
-        print(f"📄 Result length: {result_length} characters")
+        print(f"Processing time: {processing_time:.2f}s")
+        print(f"Result length: {result_length} characters")
         if result_length > 0:
-            print(f"📝 First 100 chars: {result[:100]}")
+            print(f"First 100 chars: {result[:100]}")
+        else:
+            print("WARNING: DeepSeek returned EMPTY or None result!")
+            print(f"Result value: {result}")
         print("=" * 80)
 
         return JSONResponse({
