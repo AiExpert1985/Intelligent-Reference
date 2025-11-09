@@ -184,21 +184,67 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
                 base_size=1024,  # Base mode: 1024x1024 (256 vision tokens)
                 image_size=1024,  # Match base_size for single resolution
                 crop_mode=False,  # Single pass processing (faster than Gundam mode)
-                save_results=False,
+                save_results=True,  # MUST be True - infer() saves to files, doesn't return text!
                 test_compress=False,
             )
             print("OCR inference completed!")
-            print(f"DEBUG: Result type: {type(result)}")
-            print(f"DEBUG: Result repr: {repr(result)[:200]}")
-            if hasattr(result, '__dict__'):
-                print(f"DEBUG: Result attributes: {dir(result)}")
+            print(f"DEBUG: infer() return value type: {type(result)}")
+            print(f"DEBUG: infer() return value: {repr(result)[:200] if result else 'None'}")
 
-            # Check if DeepSeek saved files
+            # The infer() method saves results to files instead of returning text
+            # Look for common output file patterns
             import glob
             output_files = glob.glob(f"{temp_dir}/*")
             print(f"DEBUG: Files in output dir: {output_files}")
-            for fpath in output_files:
-                print(f"  - {os.path.basename(fpath)} ({os.path.getsize(fpath)} bytes)")
+
+            # Read the OCR result from saved files
+            text_result = None
+
+            # Try common DeepSeek output file patterns
+            for pattern in ['result.mmd', 'result_ori.mmd', 'result.txt', 'images']:
+                file_path = os.path.join(temp_dir, pattern)
+                if os.path.exists(file_path) and os.path.isfile(file_path):
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read().strip()
+                            if content and len(content) > 0:
+                                text_result = content
+                                print(f"✓ Found OCR result in {pattern}: {len(content)} characters")
+                                break
+                    except Exception as e:
+                        print(f"  ! Error reading {pattern}: {e}")
+
+            # If no result found in known files, list all files and try to read them
+            if not text_result:
+                print("WARNING: No result in expected files. Checking all output files...")
+                for fpath in output_files:
+                    fname = os.path.basename(fpath)
+                    fsize = os.path.getsize(fpath) if os.path.isfile(fpath) else 0
+                    print(f"  - {fname} ({fsize} bytes)")
+
+                    # Skip input image
+                    if fname == 'input_image.jpg':
+                        continue
+
+                    # Try reading any text files
+                    if os.path.isfile(fpath) and fsize > 0:
+                        try:
+                            with open(fpath, 'r', encoding='utf-8') as f:
+                                content = f.read().strip()
+                                if content and len(content) > 0:
+                                    text_result = content
+                                    print(f"✓ Found text in {fname}: {len(content)} characters")
+                                    break
+                        except Exception as e:
+                            print(f"  ! Could not read {fname} as text: {e}")
+
+            # Use the result from infer() as fallback (if it returned something)
+            if not text_result and result:
+                text_result = str(result)
+                print("Using infer() return value as result")
+
+            # Final result
+            result = text_result or ""
 
         processing_time = time.time() - start_time
         result_length = len(result) if result else 0
