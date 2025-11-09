@@ -3,12 +3,19 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional
 from vllm import LLM, SamplingParams
-from vllm.model_executor.models.deepseek_ocr import NGramPerReqLogitsProcessor
 from PIL import Image
 import io
 import base64
 import time
 import uvicorn
+
+# Try to import anti-repetition processor (optional optimization)
+try:
+    from vllm.model_executor.models.deepseek_ocr import NGramPerReqLogitsProcessor
+    HAS_NGRAM_PROCESSOR = True
+except ImportError:
+    HAS_NGRAM_PROCESSOR = False
+    print("Note: NGramPerReqLogitsProcessor not available, proceeding without it")
 
 app = FastAPI(title="DeepSeek OCR API")
 
@@ -25,12 +32,19 @@ def load_model():
     global llm
     print("Loading DeepSeek-OCR with vLLM...")
 
-    llm = LLM(
-        model="deepseek-ai/DeepSeek-OCR",
-        enable_prefix_caching=False,
-        mm_processor_cache_gb=0,
-        logits_processors=[NGramPerReqLogitsProcessor],  # Anti-repetition
-    )
+    # Build kwargs conditionally
+    kwargs = {
+        "model": "deepseek-ai/DeepSeek-OCR",
+        "enable_prefix_caching": False,
+        "mm_processor_cache_gb": 0,
+    }
+
+    # Add anti-repetition processor if available
+    if HAS_NGRAM_PROCESSOR:
+        kwargs["logits_processors"] = [NGramPerReqLogitsProcessor]
+        print("Using NGramPerReqLogitsProcessor for anti-repetition")
+
+    llm = LLM(**kwargs)
 
     print("Model loaded successfully!")
 
@@ -76,16 +90,21 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
         }]
 
         # Sampling params (production-optimized)
-        sampling_params = SamplingParams(
-            temperature=0.0,      # Deterministic
-            max_tokens=8192,      # Standard for documents
-            skip_special_tokens=False,
-            extra_args=dict(
+        sampling_kwargs = {
+            "temperature": 0.0,      # Deterministic
+            "max_tokens": 8192,      # Standard for documents
+            "skip_special_tokens": False,
+        }
+
+        # Add anti-repetition params if processor is available
+        if HAS_NGRAM_PROCESSOR:
+            sampling_kwargs["extra_args"] = dict(
                 ngram_size=30,
                 window_size=90,
                 whitelist_token_ids={128821, 128822},  # <td>, </td>
-            ),
-        )
+            )
+
+        sampling_params = SamplingParams(**sampling_kwargs)
 
         print(f"Processing image: {image.size}")
 
