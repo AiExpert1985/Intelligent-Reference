@@ -104,7 +104,7 @@ class Settings(BaseSettings):
 
     # Logging
     LOGGER_NAME: str = "alfahras"
-    LOG_LEVEL: str = "WARNING"
+    LOG_LEVEL: str = "INFO"  # Changed from WARNING to see OCR logs
 
     # Debug artefacts
     DEBUG_OCR_DUMPS: bool = True

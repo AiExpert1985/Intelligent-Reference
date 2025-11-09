@@ -344,9 +344,16 @@ class RemoteGPUBackend(GPUBackend):
             source = str(image)
             pil_image = Image.open(image).convert("RGB")
 
+        # Log image details
+        image_size = pil_image.size
+        logger.info(f"🖼️  Preparing to send image to RunPod: size={image_size}, source={source}")
+
         buffer = io.BytesIO()
         pil_image.save(buffer, format="PNG")
         image_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+        image_kb = len(image_b64) / 1024
+        logger.info(f"📦 Image encoded: {image_kb:.1f} KB base64")
 
         # Payload format for our FastAPI server
         payload = {
@@ -355,21 +362,42 @@ class RemoteGPUBackend(GPUBackend):
         }
 
         start = time.time()
+        logger.info(f"🚀 Sending OCR request to RunPod: {self.endpoint}/ocr_base64")
+
         try:
             response = self._session.post(
                 f"{self.endpoint}/ocr_base64",
                 json=payload,
                 timeout=self.timeout,
             )
+
+            logger.info(f"📡 RunPod response status: {response.status_code}")
+
             response.raise_for_status()
             result = response.json()
+
+            elapsed = time.time() - start
+            logger.info(f"✅ RunPod OCR completed in {elapsed:.2f}s")
+
+        except requests.Timeout as exc:
+            logger.error(f"⏱️  RunPod request TIMEOUT after {self.timeout}s: {exc}")
+            raise RuntimeError(f"RunPod request timeout after {self.timeout}s") from exc
+        except requests.HTTPError as exc:
+            logger.error(f"❌ RunPod HTTP error {response.status_code}: {exc}")
+            logger.error(f"Response body: {response.text[:500]}")
+            raise RuntimeError(f"RunPod HTTP error {response.status_code}: {exc}") from exc
         except requests.RequestException as exc:
-            logger.error("Remote OCR request failed: %s", exc)
+            logger.error(f"❌ RunPod request failed: {exc}")
             raise RuntimeError(f"Remote GPU request failed: {exc}") from exc
 
         # Parse the FastAPI server response
         # Our server returns: {"success": True, "text": "...", "processing_time": ..., "prompt_used": "..."}
         text = str(result.get("text", ""))
+        text_length = len(text)
+
+        logger.info(f"📝 Extracted text: {text_length} characters")
+        if text_length > 0:
+            logger.debug(f"First 100 chars: {text[:100]}")
 
         # Note: Our FastAPI server returns plain text, not structured lines
         # We'll parse it into lines for compatibility

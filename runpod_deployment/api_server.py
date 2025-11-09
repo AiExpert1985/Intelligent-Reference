@@ -136,26 +136,38 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
     Args:
         request: JSON with base64 image and optional prompt_type
     """
+    print("=" * 80)
+    print("🔔 NEW OCR REQUEST RECEIVED")
+    print(f"📋 Prompt type: {request.prompt_type}")
+    print(f"📦 Image size (base64): {len(request.image) / 1024:.1f} KB")
+    print("=" * 80)
+
     if model is None:
+        print("❌ ERROR: Model not loaded!")
         raise HTTPException(status_code=503, detail="Model not loaded")
 
     try:
         start_time = time.time()
 
         # Decode base64 image
+        print("🔓 Decoding base64 image...")
         image_data = base64.b64decode(request.image)
         image = Image.open(io.BytesIO(image_data)).convert("RGB")
+        print(f"🖼️  Image decoded: {image.size} pixels, mode={image.mode}")
 
         # Create temporary directory for this request
         with tempfile.TemporaryDirectory() as temp_dir:
             # Save image temporarily
             temp_image_path = os.path.join(temp_dir, "input_image.jpg")
             image.save(temp_image_path)
+            print(f"💾 Image saved to: {temp_image_path}")
 
             # Get prompt
             prompt = get_prompt(request.prompt_type, request.custom_prompt)
+            print(f"📝 Using prompt: {prompt[:100]}...")
 
             # Run OCR inference
+            print("🚀 Starting DeepSeek OCR inference...")
             result = model.infer(
                 tokenizer,
                 prompt=prompt,
@@ -167,8 +179,16 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
                 save_results=False,
                 test_compress=True
             )
+            print("✅ OCR inference completed!")
 
         processing_time = time.time() - start_time
+        result_length = len(result) if result else 0
+
+        print(f"⏱️  Processing time: {processing_time:.2f}s")
+        print(f"📄 Result length: {result_length} characters")
+        if result_length > 0:
+            print(f"📝 First 100 chars: {result[:100]}")
+        print("=" * 80)
 
         return JSONResponse({
             "success": True,
@@ -178,6 +198,11 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
         })
 
     except Exception as e:
+        print(f"❌ ERROR during OCR processing: {str(e)}")
+        print(f"Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        print("=" * 80)
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
 
 if __name__ == "__main__":
