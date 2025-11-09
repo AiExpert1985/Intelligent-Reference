@@ -167,17 +167,19 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
             print(f"📝 Using prompt: {prompt[:100]}...")
 
             # Run OCR inference
+            # Using base mode (1024x1024) for balance of speed and quality
+            # crop_mode=False for single-pass processing (much faster!)
             print("Starting DeepSeek OCR inference...")
             result = model.infer(
                 tokenizer,
                 prompt=prompt,
                 image_file=temp_image_path,
                 output_path=temp_dir,
-                base_size=1024,
-                image_size=640,
-                crop_mode=True,
+                base_size=1024,  # Base: 1024x1024 (256 vision tokens)
+                image_size=1024,  # Match base_size for single resolution
+                crop_mode=False,  # FALSE = single pass, much faster!
                 save_results=False,
-                test_compress=True
+                test_compress=False  # Disable compression for simpler output
             )
             print("OCR inference completed!")
             print(f"DEBUG: Result type: {type(result)}")
