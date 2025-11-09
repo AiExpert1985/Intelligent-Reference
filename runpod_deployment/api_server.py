@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from typing import Optional
 import uvicorn
 from PIL import Image
 import io
@@ -21,7 +22,7 @@ tokenizer = None
 class Base64ImageRequest(BaseModel):
     image: str  # base64 encoded image
     prompt_type: str = "markdown"  # "markdown", "free", or "custom"
-    custom_prompt: str = None
+    custom_prompt: Optional[str] = None
 
 def load_model():
     """Load DeepSeek-OCR model and tokenizer"""
@@ -63,7 +64,7 @@ async def health():
         "device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A"
     }
 
-def get_prompt(prompt_type: str, custom_prompt: str = None) -> str:
+def get_prompt(prompt_type: str, custom_prompt: Optional[str] = None) -> str:
     """Generate prompt based on type"""
     if prompt_type == "custom" and custom_prompt:
         return f"<image>\n{custom_prompt}"

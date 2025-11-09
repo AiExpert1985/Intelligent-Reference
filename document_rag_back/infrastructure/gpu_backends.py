@@ -180,8 +180,9 @@ class LocalGPUBackend(GPUBackend):
                     return candidate
         if isinstance(raw_result, list):
             return raw_result
-        if hasattr(raw_result, "lines") and isinstance(raw_result.lines, list):
-            return raw_result.lines
+        lines = getattr(raw_result, "lines", None)
+        if isinstance(lines, list):
+            return lines
         return []
 
     def _extract_text_fallback(self, raw_result: Any) -> str:
