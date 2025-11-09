@@ -173,46 +173,51 @@ async def ocr_base64_endpoint(request: Base64ImageRequest):
             print(f"📝 Using prompt: {prompt[:100]}...")
 
             # Run OCR inference
-            # Disable streaming mode to get text returned directly instead of stdout
+            # DeepSeek streams output to stdout - we need to capture it
             print("Starting DeepSeek OCR inference...")
-            result = model.infer(
-                tokenizer,
-                prompt=prompt,
-                image_file=temp_image_path,
-                output_path=temp_dir,
-                base_size=1024,  # Base mode: 1024x1024 (256 vision tokens)
-                image_size=1024,  # Match base_size for single resolution
-                crop_mode=False,  # Single pass processing (faster than Gundam mode)
-                save_results=False,
-                test_compress=False,
-                stream=False,  # CRITICAL: Disable streaming to get returned text instead of stdout
-            )
+
+            # Capture stdout to get the streamed text
+            import sys
+            from io import StringIO
+
+            captured_stdout = StringIO()
+            original_stdout = sys.stdout
+            sys.stdout = captured_stdout
+
+            try:
+                result = model.infer(
+                    tokenizer,
+                    prompt=prompt,
+                    image_file=temp_image_path,
+                    output_path=temp_dir,
+                    base_size=1024,  # Base mode: 1024x1024 (256 vision tokens)
+                    image_size=1024,  # Match base_size for single resolution
+                    crop_mode=False,  # Single pass processing (faster than Gundam mode)
+                    save_results=False,
+                    test_compress=False,
+                )
+            finally:
+                # Always restore stdout
+                sys.stdout = original_stdout
+
+            # Get the captured text
+            streamed_text = captured_stdout.getvalue()
+
             print("OCR inference completed!")
             print(f"DEBUG: infer() return type: {type(result)}")
+            print(f"DEBUG: Captured {len(streamed_text)} characters from stdout")
 
-            # Extract text from result structure
-            text_result = None
-            if result:
-                print(f"DEBUG: infer() returned: {type(result)}")
-                if isinstance(result, str):
-                    text_result = result
-                    print(f"✓ Got string result: {len(text_result)} characters")
-                elif isinstance(result, dict):
-                    # Try common keys from DeepSeek output
-                    for key in ['text', 'markdown', 'result', 'output']:
-                        if key in result:
-                            text_result = result[key]
-                            print(f"✓ Got text from result['{key}']: {len(text_result)} characters")
-                            break
-                    if not text_result:
-                        print(f"WARNING: Dict result but no text key found. Keys: {list(result.keys())}")
-                        print(f"Full result: {result}")
-                else:
-                    print(f"WARNING: Unexpected result type: {type(result)}")
-                    print(f"Result repr: {repr(result)[:500]}")
-                    text_result = str(result)
+            # The actual text is in the captured stdout, not the return value
+            text_result = streamed_text.strip() if streamed_text else None
+
+            # Clean up the output - remove special tokens and keep only the actual text
+            if text_result:
+                # The streamed output contains the raw generation with special tokens
+                # We need to extract just the text content
+                print(f"✓ Got streamed output: {len(text_result)} characters")
+                print(f"First 200 chars: {text_result[:200]}")
             else:
-                print("WARNING: infer() returned None - stream=False may not be supported")
+                print("WARNING: No output captured from stdout")
 
             result = text_result or ""
 
