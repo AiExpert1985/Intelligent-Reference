@@ -1,7 +1,6 @@
-# RunPod Pods (Server) Requirements for DeepSeek OCR API
-
-# Transformers for DeepSeek model
-transformers>=4.51.1
+# DeepSeek-OCR official tested versions (Python 3.12.9 + CUDA 11.8)
+transformers==4.46.3
+tokenizers==0.20.3
 
 # FastAPI server
 fastapi>=0.121.0
@@ -9,10 +8,11 @@ uvicorn>=0.38.0
 
 # Image processing
 Pillow>=9.0.0
-
-# Required by DeepSeek model
 matplotlib>=3.0.0
 
-# Standard dependencies
+# Standard
 pydantic>=2.0.0
+
+# Note: Install separately with --no-build-isolation:
+# pip install flash-attn==2.7.3 --no-build-isolation
 
