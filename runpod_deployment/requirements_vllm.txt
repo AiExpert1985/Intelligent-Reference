@@ -1,0 +1,21 @@
+# RunPod Production Requirements (vLLM - Official DeepSeek Method)
+
+# vLLM for production inference (official recommended approach)
+vllm==0.8.5
+
+# FastAPI server
+fastapi>=0.121.0
+uvicorn>=0.38.0
+python-multipart
+
+# Image processing
+Pillow>=9.0.0
+
+# PyTorch (install separately with CUDA)
+# pip install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu118
+
+# Flash Attention (install after torch)
+# pip install flash-attn==2.7.3 --no-build-isolation
+
+# Standard dependencies
+pydantic>=2.0.0
