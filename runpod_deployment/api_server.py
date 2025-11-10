@@ -22,14 +22,20 @@ def load_model():
     global model, tokenizer
     print("Loading DeepSeek-OCR model...")
 
-    tokenizer = AutoTokenizer.from_pretrained('deepseek-ai/DeepSeek-OCR', trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        'deepseek-ai/DeepSeek-OCR',
+        trust_remote_code=True
+    )
+
     model = AutoModel.from_pretrained(
         'deepseek-ai/DeepSeek-OCR',
+        _attn_implementation='flash_attention_2',
         trust_remote_code=True,
-        torch_dtype=torch.bfloat16
-    ).eval().cuda()
+        use_safetensors=True
+    )
+    model = model.eval().cuda().to(torch.bfloat16)
 
-    print("Model loaded successfully!")
+    print("Model loaded successfully with Flash Attention 2!")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
