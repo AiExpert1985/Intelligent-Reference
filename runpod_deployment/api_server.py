@@ -14,9 +14,35 @@ from transformers import AutoModel, AutoTokenizer
 import tempfile
 import sys
 from io import StringIO
+from pathlib import Path
 
 model = None
 tokenizer = None
+
+def warmup():
+    """Run dummy inference to warm up model and cache"""
+    print("Warming up model...")
+    with tempfile.TemporaryDirectory() as tmp:
+        img_path = Path(tmp, "warmup.jpg")
+        Image.new("RGB", (64, 64), "white").save(img_path)
+
+        captured = StringIO()
+        sys.stdout = captured
+        try:
+            model.infer(
+                tokenizer,
+                prompt="<image>\nFree OCR.",
+                image_file=str(img_path),
+                output_path=tmp,
+                base_size=256,
+                image_size=256,
+                crop_mode=False,
+                save_results=False,
+                test_compress=False
+            )
+        finally:
+            sys.stdout = sys.__stdout__
+    print("Warmup complete!")
 
 def load_model():
     global model, tokenizer
@@ -31,12 +57,13 @@ def load_model():
         'deepseek-ai/DeepSeek-OCR',
         _attn_implementation='flash_attention_2',
         torch_dtype=torch.bfloat16,
+        device_map='auto',
         trust_remote_code=True,
         use_safetensors=True
-    )
-    model = model.eval().cuda()
+    ).eval()
 
     print("Model loaded successfully with Flash Attention 2!")
+    warmup()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
