@@ -77,8 +77,15 @@ class DocumentIngestion:
     async def process_document(self, file: UploadFile) -> ProcessDocumentResponse:
         doc_id: Optional[str] = None
         try:
+            logger.info("=" * 80)
+            logger.info("[INGESTION] Starting document processing...")
+            logger.info(f"[INGESTION] Filename: {file.filename}")
+
             file_hash, doc_id, stored_name, _ = await self._validate_and_prepare(file)
             assert file.filename is not None
+
+            logger.info(f"[INGESTION] Document ID: {doc_id}")
+            logger.info(f"[INGESTION] File hash: {file_hash}")
 
             progress_store.start(doc_id, file.filename)
             progress_store.update(
@@ -90,6 +97,10 @@ class DocumentIngestion:
             file_path = await self._save_and_validate_file(file, stored_name)
             file_type = get_file_extension(file.filename)
 
+            logger.info(f"[INGESTION] File saved to: {file_path}")
+            logger.info(f"[INGESTION] File type: {file_type}")
+            logger.info("[INGESTION] Submitting background processing task...")
+
             async_processor.submit_task(
                 self._process_document_background(
                     doc_id,
@@ -100,6 +111,9 @@ class DocumentIngestion:
                     stored_name,
                 )
             )
+
+            logger.info(f"[INGESTION] Document {doc_id} submitted for background processing")
+            logger.info("=" * 80)
 
             return ProcessDocumentResponse(
                 status=DocumentResponseStatus.PROCESSING,
@@ -149,10 +163,18 @@ class DocumentIngestion:
     ) -> None:
         document: Optional[ProcessedDocument] = None
 
+        logger.info("=" * 80)
+        logger.info(f"[BACKGROUND] Starting background processing for {doc_id}")
+        logger.info(f"[BACKGROUND] File: {filename}")
+        logger.info(f"[BACKGROUND] Path: {file_path}")
+        logger.info(f"[BACKGROUND] Type: {file_type}")
+        logger.info("=" * 80)
+
         async with get_session() as session:
             doc_repo = SQLDocumentRepository(session)
 
             try:
+                logger.info("[BACKGROUND] Checking for duplicate...")
                 existing = await doc_repo.get_by_hash(file_hash)
                 if existing:
                     raise DocumentProcessingError(
@@ -160,13 +182,20 @@ class DocumentIngestion:
                         ErrorCode.DUPLICATE_FILE,
                     )
 
+                logger.info("[BACKGROUND] Creating document record in DB...")
                 document = await doc_repo.create(doc_id, filename, file_hash, stored_name)
 
+                logger.info(f"[BACKGROUND] Getting OCR processor for file type: {file_type}")
                 processor = self._processor_factory.get_processor(file_type)
+                logger.info(f"[BACKGROUND] Processor: {processor.__class__.__name__}")
+
+                logger.info("[BACKGROUND] Loading images from document...")
                 images: List[Image.Image] = await processor.load_images(file_path, file_type)
+                logger.info(f"[BACKGROUND] Loaded {len(images)} page(s)")
 
                 page_image_paths: Dict[int, str] = {}
                 page_thumbnail_paths: Dict[int, str] = {}
+                logger.info("[BACKGROUND] Saving page images and thumbnails...")
                 for page_number, image in enumerate(images, 1):
                     original_rel, thumb_rel = await self._file_storage.save_page_image(
                         image=image,
@@ -175,21 +204,26 @@ class DocumentIngestion:
                     )
                     page_image_paths[page_number] = original_rel
                     page_thumbnail_paths[page_number] = thumb_rel
+                    logger.info(f"  [BACKGROUND] Page {page_number} saved")
 
                 document.metadata = (document.metadata or {})
                 document.metadata["page_image_paths"] = page_image_paths
                 document.metadata["page_thumbnail_paths"] = page_thumbnail_paths
                 await doc_repo.update_metadata(document.id, document.metadata)
 
+                logger.info("[BACKGROUND] Starting OCR text extraction...")
                 try:
                     chunks, geometry_by_page = await self._extract_text_chunks(
                         file_path, file_type, document, doc_id
                     )
+                    logger.info(f"[BACKGROUND] OCR completed: {len(chunks)} chunks extracted")
                 except RuntimeError as error:
-                    logger.error(f"[PROCESS] Attempting OCR fallback for {filename}")
+                    logger.error(f"[PROCESS] OCR failed, attempting fallback for {filename}")
+                    logger.error(f"Error: {str(error)}")
                     chunks, geometry_by_page = await self._extract_text_chunks_with_fallback(
                         file_path, file_type, document, doc_id
                     )
+                    logger.info(f"[BACKGROUND] Fallback OCR completed: {len(chunks)} chunks extracted")
 
                 for chunk in chunks:
                     page = int(chunk.metadata.get("page", 0))

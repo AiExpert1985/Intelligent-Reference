@@ -1,6 +1,6 @@
 # config.py
 """Enhanced configuration with new settings"""
-from typing import List
+from typing import List, Optional
 from pydantic_settings import BaseSettings
 from utils.common import get_log_file_path, get_project_root
 
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # PDF processing method selection
     PDF_PROCESSING_METHOD: str = "ocr"
-    OCR_ENGINE: str = "paddleocr" # Options: tesseract, easyocr, paddleocr
+    OCR_ENGINE: str = "deepseek" # Options: tesseract, easyocr, paddleocr, deepseek
     OCR_DPI: int = 300
     OCR_LANGUAGES: List[str] = ["ar", "en"]
     
@@ -65,6 +65,18 @@ class Settings(BaseSettings):
     # Document processing
     ARABIC_BIDI_WRAP_FOR_DISPLAY: bool = True  # Add RTL markers for display
 
+    # GPU / Remote compute configuration
+    USE_REMOTE_GPU: bool = True
+    RUNPOD_API_KEY: Optional[str] = "dummy-key"  # Not required for our FastAPI server
+
+    # IMPORTANT: RunPod proxy URL has a 2-minute hard timeout
+    # For longer inference (DeepSeek OCR can take >2 min), use direct pod IP:
+    # Get direct IP: RunPod Web UI -> Your Pod -> Connect -> TCP Port Mappings
+    # Format: "http://XX.runpod.io:XXXXX" or "http://XX.XXX.XX.XX:XXXXX"
+    RUNPOD_ENDPOINT: Optional[str] = "https://cc2fvkaqbqnrf5-8000.proxy.runpod.net"
+
+    RUNPOD_TIMEOUT: int = 600  # Timeout for direct connection (proxy ignores this)
+    LOCAL_GPU_DEVICE: str = "cuda"
 
     # Search quality controls
     SEARCH_CANDIDATE_K: int = 40
@@ -98,7 +110,7 @@ class Settings(BaseSettings):
 
     # Logging
     LOGGER_NAME: str = "alfahras"
-    LOG_LEVEL: str = "WARNING"
+    LOG_LEVEL: str = "INFO"  # Changed from WARNING to see OCR logs
 
     # Debug artefacts
     DEBUG_OCR_DUMPS: bool = True

@@ -64,7 +64,30 @@ async def upload_document(
     file: UploadFile = File(...),
     rag_service: IRAGService = Depends(get_rag_service),
 ) -> ProcessDocumentResponse:
-    return await rag_service.process_document(file)
+    import logging
+    logger = logging.getLogger("alfahras")
+
+    logger.info("=" * 80)
+    logger.info("[UPLOAD] Endpoint called")
+    logger.info(f"[UPLOAD] Filename: {file.filename}")
+    logger.info(f"[UPLOAD] Content-Type: {file.content_type}")
+    logger.info(f"[UPLOAD] Size: {file.size if hasattr(file, 'size') else 'unknown'}")
+    logger.info("=" * 80)
+
+    try:
+        logger.info("[UPLOAD] Calling rag_service.process_document()...")
+        result = await rag_service.process_document(file)
+        logger.info(f"[UPLOAD] Document processed successfully: {result.document_id}")
+        logger.info("=" * 80)
+        return result
+    except Exception as e:
+        logger.error("=" * 80)
+        logger.error(f"[ERROR] In upload_document endpoint: {str(e)}")
+        logger.error(f"Error type: {type(e).__name__}")
+        import traceback
+        logger.error(traceback.format_exc())
+        logger.error("=" * 80)
+        raise
 
 
 # ---------- Search (CHUNKS) - keep existing behavior for LLM/compat ----------
