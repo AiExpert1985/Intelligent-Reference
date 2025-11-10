@@ -31,10 +31,10 @@ def load_model():
         'deepseek-ai/DeepSeek-OCR',
         _attn_implementation='flash_attention_2',
         torch_dtype=torch.bfloat16,
-        device_map='auto',
         trust_remote_code=True,
         use_safetensors=True
-    ).eval()
+    )
+    model = model.eval().cuda()
 
     print("Model loaded successfully with Flash Attention 2!")
 
