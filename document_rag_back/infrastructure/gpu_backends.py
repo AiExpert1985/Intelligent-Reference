@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -104,19 +105,84 @@ class LocalGPUBackend(GPUBackend):
     def _get_deepseek_engine(self) -> Any:
         """Lazy-load and cache the DeepSeek OCR engine."""
 
-        if self._deepseek_engine is None:
-            try:
-                from deepseek_ocr import DeepSeekOCR  # type: ignore
+        if self._deepseek_engine is not None:
+            return self._deepseek_engine
 
-                self._deepseek_engine = DeepSeekOCR(device=self.device)
-                logger.info("DeepSeek OCR loaded on %s", self.device)
-            except ImportError as exc:  # pragma: no cover - import guard
-                raise RuntimeError(
-                    "DeepSeek OCR not available. Install with: pip install deepseek-ocr"
-                ) from exc
-            except Exception as exc:  # pragma: no cover - defensive guard
-                raise RuntimeError(f"Failed to initialise DeepSeek OCR: {exc}") from exc
+        try:
+            deepseek_module = self._import_deepseek_module()
+            DeepSeekOCR = getattr(deepseek_module, "DeepSeekOCR")  # type: ignore[attr-defined]
+        except (ImportError, AttributeError) as exc:  # pragma: no cover - import guard
+            raise RuntimeError(self._missing_deepseek_message()) from exc
+
+        try:
+            self._deepseek_engine = DeepSeekOCR(device=self.device)  # type: ignore[call-arg]
+        except Exception as exc:  # pragma: no cover - defensive guard
+            raise RuntimeError(f"Failed to initialise DeepSeek OCR: {exc}") from exc
+
+        logger.info("DeepSeek OCR loaded on %s", self.device)
         return self._deepseek_engine
+
+    def _import_deepseek_module(self) -> Any:
+        """Import the DeepSeek OCR python package with optional path hints."""
+
+        import importlib
+        import sys
+
+        try:
+            return importlib.import_module("deepseek_ocr")
+        except ImportError:
+            pass
+
+        for candidate in self._candidate_deepseek_paths():
+            if candidate.exists() and candidate.is_dir():
+                if str(candidate) not in sys.path:
+                    sys.path.insert(0, str(candidate))
+                try:
+                    return importlib.import_module("deepseek_ocr")
+                except ImportError:
+                    continue
+
+        raise ImportError("deepseek_ocr package not found")
+
+    def _candidate_deepseek_paths(self) -> List[Path]:
+        """Generate candidate paths that may contain the DeepSeek package."""
+
+        candidates: List[Path] = []
+
+        env_value = os.getenv("DEEPSEEK_OCR_PATH") or os.getenv("DEEPSEEK_OCR_HOME")
+        if env_value:
+            for raw_path in env_value.split(os.pathsep):
+                path = Path(raw_path).expanduser().resolve()
+                candidates.extend({path, path / "python", path / "src"})
+
+        repo_root = Path(__file__).resolve().parents[2]
+        defaults = [
+            repo_root / "DeepSeek-OCR",
+            repo_root.parent / "DeepSeek-OCR",
+            Path("/workspace/DeepSeek-OCR"),
+            Path.home() / "DeepSeek-OCR",
+        ]
+        for path in defaults:
+            candidates.extend({path, path / "python", path / "src"})
+
+        unique_candidates: List[Path] = []
+        seen = set()
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            unique_candidates.append(candidate)
+        return unique_candidates
+
+    def _missing_deepseek_message(self) -> str:
+        """Return actionable guidance when DeepSeek cannot be imported."""
+
+        hints = [
+            "DeepSeek OCR not available.",
+            "Install with: pip install deepseek-ocr",
+            "or set DEEPSEEK_OCR_PATH to the cloned repository root",
+        ]
+        return " ".join(hints)
 
     def run_deepseek_ocr(
         self,
