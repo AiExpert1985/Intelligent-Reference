@@ -62,6 +62,15 @@ class OCRRequest(BaseModel):
         return value
 
 
+class HealthResponse(BaseModel):
+    """Health endpoint payload."""
+
+    status: str
+    device: str
+    available: bool
+    detail: Optional[str] = None
+
+
 class OCRResponse(BaseModel):
     """Response payload returned after DeepSeek OCR is executed."""
 
@@ -147,8 +156,8 @@ def _serialise_lines(result: OCRResult) -> Optional[List[OCRLine]]:
     return serialised or None
 
 
-@app.get("/health")
-def healthcheck() -> dict[str, str]:
+@app.get("/health", response_model=HealthResponse)
+def healthcheck() -> HealthResponse:
     """Simple health-check endpoint used by the orchestrator."""
 
     backend = get_backend()
@@ -160,10 +169,14 @@ def healthcheck() -> dict[str, str]:
         available = False
         status = "error"
         detail = str(exc)
-    response = {"status": status, "device": backend.device, "available": available}
+    payload = {
+        "status": status,
+        "device": backend.device,
+        "available": bool(available),
+    }
     if detail:
-        response["detail"] = detail
-    return response
+        payload["detail"] = detail
+    return HealthResponse(**payload)
 
 
 @app.post("/ocr_base64", response_model=OCRResponse)
