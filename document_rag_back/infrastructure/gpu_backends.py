@@ -133,14 +133,29 @@ class LocalGPUBackend(GPUBackend):
         except ImportError:
             pass
 
+        inspected: List[str] = []
+
         for candidate in self._candidate_deepseek_paths():
-            if candidate.exists() and candidate.is_dir():
-                if str(candidate) not in sys.path:
-                    sys.path.insert(0, str(candidate))
-                try:
-                    return importlib.import_module("deepseek_ocr")
-                except ImportError:
-                    continue
+            parent = self._resolve_deepseek_parent(candidate)
+            if parent is None:
+                logger.debug("DeepSeek path candidate rejected (package missing): %s", candidate)
+                continue
+
+            parent_str = str(parent)
+            if parent_str not in sys.path:
+                sys.path.insert(0, parent_str)
+                logger.debug("Added DeepSeek candidate to sys.path: %s", parent_str)
+
+            try:
+                module = importlib.import_module("deepseek_ocr")
+                logger.info("DeepSeek OCR module imported from %s", parent_str)
+                return module
+            except ImportError:
+                inspected.append(parent_str)
+                continue
+
+        if inspected:
+            logger.error("DeepSeek OCR import failed after inspecting: %s", inspected)
 
         raise ImportError("deepseek_ocr package not found")
 
@@ -153,17 +168,21 @@ class LocalGPUBackend(GPUBackend):
         if env_value:
             for raw_path in env_value.split(os.pathsep):
                 path = Path(raw_path).expanduser().resolve()
-                candidates.extend({path, path / "python", path / "src"})
+                candidates.append(path)
 
         repo_root = Path(__file__).resolve().parents[2]
         defaults = [
+            Path.cwd(),
+            Path.cwd().parent,
+            repo_root,
             repo_root / "DeepSeek-OCR",
             repo_root.parent / "DeepSeek-OCR",
             Path("/workspace/DeepSeek-OCR"),
+            Path("/workspace/deepseek-ocr"),
             Path.home() / "DeepSeek-OCR",
+            Path.home() / "deepseek-ocr",
         ]
-        for path in defaults:
-            candidates.extend({path, path / "python", path / "src"})
+        candidates.extend(path.expanduser().resolve() for path in defaults)
 
         unique_candidates: List[Path] = []
         seen = set()
@@ -173,6 +192,33 @@ class LocalGPUBackend(GPUBackend):
             seen.add(candidate)
             unique_candidates.append(candidate)
         return unique_candidates
+
+    def _resolve_deepseek_parent(self, candidate: Path) -> Optional[Path]:
+        """Resolve the sys.path entry that exposes the DeepSeek package."""
+
+        if not candidate.exists() or not candidate.is_dir():
+            return None
+
+        direct_checks = [candidate]
+        if candidate.name == "deepseek_ocr":
+            direct_checks.append(candidate.parent)
+
+        for suffix in ("python", "src"):
+            direct_checks.append(candidate / suffix)
+
+        for path in direct_checks:
+            package_root = path / "deepseek_ocr"
+            if package_root.is_dir() and (package_root / "__init__.py").is_file():
+                return path
+
+        # Fall back to a shallow scan for uncommon layouts.
+        try:
+            for init_file in candidate.glob("**/deepseek_ocr/__init__.py"):
+                return init_file.parent.parent
+        except (OSError, RuntimeError):  # pragma: no cover - filesystem guards
+            return None
+
+        return None
 
     def _missing_deepseek_message(self) -> str:
         """Return actionable guidance when DeepSeek cannot be imported."""
