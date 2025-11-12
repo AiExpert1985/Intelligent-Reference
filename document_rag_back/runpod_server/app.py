@@ -4,14 +4,21 @@ from __future__ import annotations
 import base64
 import io
 import os
+import sys
 import time
 from functools import lru_cache
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 from PIL import Image
+
+# Ensure the document_rag_back package root is importable when running ``python app.py``
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from infrastructure.gpu_backends import LocalGPUBackend, OCRResult
 
