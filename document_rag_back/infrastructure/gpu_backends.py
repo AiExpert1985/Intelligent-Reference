@@ -349,9 +349,11 @@ class RemoteGPUBackend(GPUBackend):
         image_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
         # Payload format for our FastAPI server
+        prompt_type = str(kwargs.get("prompt_type") or "markdown")
         payload = {
             "image": image_b64,
-            "prompt_type": "markdown",  # Default to markdown for documents
+            "prompt_type": prompt_type,
+            "include_geometry": True,
         }
 
         start = time.time()
@@ -363,23 +365,72 @@ class RemoteGPUBackend(GPUBackend):
             )
             response.raise_for_status()
             result = response.json()
+            if not result.get("success", True):
+                message = result.get("error") or "Remote OCR failed"
+                raise RuntimeError(message)
         except requests.RequestException as exc:
             logger.error("Remote OCR request failed: %s", exc)
             raise RuntimeError(f"Remote GPU request failed: {exc}") from exc
+        except (ValueError, RuntimeError) as exc:
+            logger.error("Remote OCR returned error payload: %s", exc)
+            raise RuntimeError(f"Remote GPU returned error: {exc}") from exc
 
-        # Parse the FastAPI server response
-        # Our server returns: {"success": True, "text": "...", "processing_time": ..., "prompt_used": "..."}
+        # Parse the FastAPI server response which now includes structured lines
         text = str(result.get("text", ""))
+        lines_payload = result.get("lines")
+        lines: Optional[List[Dict[str, Any]]] = None
 
-        # Note: Our FastAPI server returns plain text, not structured lines
-        # We'll parse it into lines for compatibility
-        lines = None  # TODO: Could parse text into lines if needed
+        if isinstance(lines_payload, list):
+            parsed_lines: List[Dict[str, Any]] = []
+            for entry in lines_payload:
+                if not isinstance(entry, dict):
+                    continue
+                text_value = str(entry.get("text", "")).strip()
+                if not text_value:
+                    continue
+
+                poly = entry.get("poly") or entry.get("polygon")
+                if isinstance(poly, list):
+                    try:
+                        poly_points = [
+                            [int(point[0]), int(point[1])] for point in poly if len(point) >= 2
+                        ]
+                    except (TypeError, ValueError):
+                        poly_points = []
+                else:
+                    poly_points = []
+
+                bbox = entry.get("bbox_px") or entry.get("bbox")
+                if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+                    bbox_px = (
+                        int(bbox[0]),
+                        int(bbox[1]),
+                        int(bbox[2]),
+                        int(bbox[3]),
+                    )
+                else:
+                    bbox_px = (0, 0, 0, 0)
+
+                parsed_lines.append(
+                    {
+                        "line_id": str(entry.get("line_id", "")),
+                        "poly": poly_points,
+                        "bbox_px": bbox_px,
+                        "text": text_value,
+                        "conf": float(entry.get("conf", 0.0) or 0.0),
+                    }
+                )
+
+            if parsed_lines:
+                lines = parsed_lines
+
+        processing_time = float(result.get("processing_time", time.time() - start))
 
         return OCRResult(
             text=text,
             lines=lines,
-            confidence=None,  # FastAPI server doesn't return confidence
-            processing_time=time.time() - start,
+            confidence=None,  # FastAPI server doesn't currently return aggregate confidence
+            processing_time=processing_time,
             source_file=source,
             processor=OCRProcessor.DEEPSEEK.value,
             backend="remote",
