@@ -4,14 +4,21 @@ from __future__ import annotations
 import base64
 import io
 import os
+import sys
 import time
 from functools import lru_cache
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 from PIL import Image
+
+# Ensure the document_rag_back package root is importable when running ``python app.py``
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from infrastructure.gpu_backends import LocalGPUBackend, OCRResult
 
@@ -53,6 +60,15 @@ class OCRRequest(BaseModel):
         except Exception as exc:  # pragma: no cover - defensive guard
             raise ValueError("image must be valid base64 data") from exc
         return value
+
+
+class HealthResponse(BaseModel):
+    """Health endpoint payload."""
+
+    status: str
+    device: str
+    available: bool
+    detail: Optional[str] = None
 
 
 class OCRResponse(BaseModel):
@@ -105,7 +121,7 @@ def _serialise_lines(result: OCRResult) -> Optional[List[OCRLine]]:
         return None
 
     serialised: List[OCRLine] = []
-    for entry in result.lines:
+    for index, entry in enumerate(result.lines):
         try:
             poly_raw = entry.get("poly") or entry.get("polygon")
             poly = [
@@ -121,11 +137,16 @@ def _serialise_lines(result: OCRResult) -> Optional[List[OCRLine]]:
                 x, y, w, h = bbox_px
                 poly = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
 
+            try:
+                conf = float(entry.get("conf", entry.get("confidence", 0.0)))
+            except (TypeError, ValueError):
+                conf = 0.0
+
             serialised.append(
                 OCRLine(
-                    line_id=str(entry.get("line_id")),
+                    line_id=str(entry.get("line_id") or f"ln_{index:04d}"),
                     text=str(entry.get("text", "")),
-                    conf=float(entry.get("conf", 0.0)),
+                    conf=conf,
                     poly=poly,
                     bbox_px=bbox_px,
                 )
@@ -135,12 +156,27 @@ def _serialise_lines(result: OCRResult) -> Optional[List[OCRLine]]:
     return serialised or None
 
 
-@app.get("/health")
-def healthcheck() -> dict[str, str]:
+@app.get("/health", response_model=HealthResponse)
+def healthcheck() -> HealthResponse:
     """Simple health-check endpoint used by the orchestrator."""
 
     backend = get_backend()
-    return {"status": "ok", "device": backend.device}
+    status = "ok"
+    detail: Optional[str] = None
+    try:
+        available = backend.is_available()
+    except RuntimeError as exc:  # pragma: no cover - defensive guard
+        available = False
+        status = "error"
+        detail = str(exc)
+    payload = {
+        "status": status,
+        "device": backend.device,
+        "available": bool(available),
+    }
+    if detail:
+        payload["detail"] = detail
+    return HealthResponse(**payload)
 
 
 @app.post("/ocr_base64", response_model=OCRResponse)
@@ -152,11 +188,17 @@ async def ocr_base64(payload: OCRRequest) -> OCRResponse:
     backend = get_backend()
     start = time.time()
 
-    result = await run_in_threadpool(
-        backend.run_deepseek_ocr,
-        image,
-        prompt_type=payload.prompt_type,
-    )
+    try:
+        result = await run_in_threadpool(
+            backend.run_deepseek_ocr,
+            image,
+            prompt_type=payload.prompt_type,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"DeepSeek OCR backend unavailable: {exc}",
+        ) from exc
 
     processing_time = result.processing_time or (time.time() - start)
 
