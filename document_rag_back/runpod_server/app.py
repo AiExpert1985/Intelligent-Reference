@@ -152,7 +152,18 @@ def healthcheck() -> dict[str, str]:
     """Simple health-check endpoint used by the orchestrator."""
 
     backend = get_backend()
-    return {"status": "ok", "device": backend.device}
+    status = "ok"
+    detail: Optional[str] = None
+    try:
+        available = backend.is_available()
+    except RuntimeError as exc:  # pragma: no cover - defensive guard
+        available = False
+        status = "error"
+        detail = str(exc)
+    response = {"status": status, "device": backend.device, "available": available}
+    if detail:
+        response["detail"] = detail
+    return response
 
 
 @app.post("/ocr_base64", response_model=OCRResponse)
@@ -164,11 +175,17 @@ async def ocr_base64(payload: OCRRequest) -> OCRResponse:
     backend = get_backend()
     start = time.time()
 
-    result = await run_in_threadpool(
-        backend.run_deepseek_ocr,
-        image,
-        prompt_type=payload.prompt_type,
-    )
+    try:
+        result = await run_in_threadpool(
+            backend.run_deepseek_ocr,
+            image,
+            prompt_type=payload.prompt_type,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"DeepSeek OCR backend unavailable: {exc}",
+        ) from exc
 
     processing_time = result.processing_time or (time.time() - start)
 
