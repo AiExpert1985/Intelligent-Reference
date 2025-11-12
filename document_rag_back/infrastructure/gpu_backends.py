@@ -323,13 +323,12 @@ class RemoteGPUBackend(GPUBackend):
     def __init__(self, api_key: str, endpoint: str, timeout: int = 300) -> None:
         self.endpoint = endpoint.rstrip("/")
         self.timeout = timeout
+        self.api_key = api_key
         self._session = requests.Session()
-        # Note: Our FastAPI server doesn't require authentication
-        self._session.headers.update(
-            {
-                "Content-Type": "application/json",
-            }
-        )
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        self._session.headers.update(headers)
 
     def run_deepseek_ocr(
         self,
@@ -398,31 +397,156 @@ class RemoteGPUBackend(GPUBackend):
             logger.error("Remote OCR returned error payload: %s", exc)
             raise RuntimeError(f"Remote GPU returned error: {exc}") from exc
 
-        # Parse the FastAPI server response which now includes structured lines
-        text = str(result.get("text", ""))
+        return self._build_result(result, source, start)
+
+    def _build_result(
+        self, payload: Dict[str, Any], source: Optional[str], start_time: float
+    ) -> OCRResult:
+        """Normalise the JSON payload returned by the RunPod server."""
+
+        text = str(payload.get("text", ""))
         text_length = len(text)
 
         logger.info(f"[RUNPOD] Extracted text: {text_length} characters")
-        logger.info(f"[RUNPOD] Text type: {type(result.get('text'))}")
-        if text_length > 0:
+        if text_length:
             logger.info(f"First 100 chars: {text[:100]}")
         else:
-            logger.warning(f"[RUNPOD] WARNING: DeepSeek returned EMPTY text!")
-            logger.warning(f"[RUNPOD] Full response: {result}")
+            logger.warning("[RUNPOD] DeepSeek returned empty text")
 
-        # Note: Our FastAPI server returns plain text, not structured lines
-        # We'll parse it into lines for compatibility
-        lines = None  # TODO: Could parse text into lines if needed
+        lines = self._normalise_lines(payload.get("lines"))
+        confidence = self._average_confidence(lines)
+
+        processing_time = payload.get("processing_time")
+        if isinstance(processing_time, (int, float)):
+            elapsed = float(processing_time)
+        else:
+            elapsed = time.time() - start_time
 
         return OCRResult(
             text=text,
             lines=lines,
-            confidence=None,  # FastAPI server doesn't currently return aggregate confidence
-            processing_time=processing_time,
+            confidence=confidence,
+            processing_time=elapsed,
             source_file=source,
             processor=OCRProcessor.DEEPSEEK.value,
             backend="remote",
         )
+
+    def _normalise_lines(
+        self, raw_lines: Any
+    ) -> Optional[List[Dict[str, Any]]]:  # pragma: no cover - exercised via integration
+        if not isinstance(raw_lines, list):
+            return None
+
+        normalised: List[Dict[str, Any]] = []
+        for index, entry in enumerate(raw_lines):
+            if not isinstance(entry, dict):
+                continue
+
+            text = str(entry.get("text", "")).strip()
+            if not text:
+                continue
+
+            polygon = self._coerce_polygon(entry.get("poly") or entry.get("polygon"))
+            bbox = self._coerce_bbox(entry.get("bbox_px") or entry.get("bbox"))
+            if not polygon and bbox:
+                polygon = self._bbox_to_polygon(bbox)
+            conf = entry.get("conf") or entry.get("confidence")
+
+            try:
+                conf_value = float(conf)
+            except (TypeError, ValueError):
+                conf_value = 0.0
+
+            normalised.append(
+                {
+                    "line_id": str(entry.get("line_id") or f"ln_{index:04d}"),
+                    "text": text,
+                    "poly": polygon,
+                    "bbox_px": bbox if bbox else self._polygon_to_bbox(polygon),
+                    "conf": conf_value,
+                }
+            )
+
+        return normalised or None
+
+    def _coerce_polygon(self, polygon: Any) -> List[List[int]]:
+        if not isinstance(polygon, list):
+            return []
+
+        points: List[List[int]] = []
+        for point in polygon:
+            if not isinstance(point, (list, tuple)) or len(point) < 2:
+                continue
+            try:
+                x = int(float(point[0]))
+                y = int(float(point[1]))
+            except (TypeError, ValueError):
+                continue
+            points.append([x, y])
+
+        return points[:4] if len(points) >= 4 else points
+
+    def _coerce_bbox(self, bbox: Any) -> List[int]:
+        if isinstance(bbox, dict):
+            keys = ("x", "left", "y", "top", "w", "width", "h", "height")
+            if not any(key in bbox for key in keys):
+                return []
+            x = bbox.get("x") or bbox.get("left") or 0
+            y = bbox.get("y") or bbox.get("top") or 0
+            w = bbox.get("w") or bbox.get("width") or 0
+            h = bbox.get("h") or bbox.get("height") or 0
+            try:
+                return [int(float(x)), int(float(y)), int(float(w)), int(float(h))]
+            except (TypeError, ValueError):
+                return []
+
+        if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+            try:
+                return [int(float(value)) for value in bbox[:4]]
+            except (TypeError, ValueError):
+                return []
+
+        return []
+
+    def _bbox_to_polygon(self, bbox: List[int]) -> List[List[int]]:
+        if len(bbox) < 4:
+            return []
+        x, y, w, h = bbox[:4]
+        return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+
+    def _polygon_to_bbox(self, polygon: List[List[int]]) -> List[int]:
+        if len(polygon) < 4:
+            return []
+        xs = [pt[0] for pt in polygon]
+        ys = [pt[1] for pt in polygon]
+        x1, x2 = min(xs), max(xs)
+        y1, y2 = min(ys), max(ys)
+        return [x1, y1, x2 - x1, y2 - y1]
+
+    def _average_confidence(
+        self, lines: Optional[List[Dict[str, Any]]]
+    ) -> Optional[float]:  # pragma: no cover - exercised via integration
+        if not lines:
+            return None
+
+        scores: List[float] = []
+        for entry in lines:
+            value = entry.get("conf")
+            try:
+                score = float(value)
+            except (TypeError, ValueError):
+                continue
+            if 0.0 <= score <= 1.0:
+                scores.append(score)
+                continue
+            if 1.0 < score <= 100.0:
+                scores.append(score / 100.0)
+
+        if not scores:
+            return None
+
+        return sum(scores) / len(scores)
 
     def is_available(self) -> bool:
         try:

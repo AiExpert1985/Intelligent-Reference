@@ -105,7 +105,7 @@ def _serialise_lines(result: OCRResult) -> Optional[List[OCRLine]]:
         return None
 
     serialised: List[OCRLine] = []
-    for entry in result.lines:
+    for index, entry in enumerate(result.lines):
         try:
             poly_raw = entry.get("poly") or entry.get("polygon")
             poly = [
@@ -121,11 +121,16 @@ def _serialise_lines(result: OCRResult) -> Optional[List[OCRLine]]:
                 x, y, w, h = bbox_px
                 poly = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
 
+            try:
+                conf = float(entry.get("conf", entry.get("confidence", 0.0)))
+            except (TypeError, ValueError):
+                conf = 0.0
+
             serialised.append(
                 OCRLine(
-                    line_id=str(entry.get("line_id")),
+                    line_id=str(entry.get("line_id") or f"ln_{index:04d}"),
                     text=str(entry.get("text", "")),
-                    conf=float(entry.get("conf", 0.0)),
+                    conf=conf,
                     poly=poly,
                     bbox_px=bbox_px,
                 )
