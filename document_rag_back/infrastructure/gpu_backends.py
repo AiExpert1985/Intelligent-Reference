@@ -357,9 +357,11 @@ class RemoteGPUBackend(GPUBackend):
         logger.info(f"[RUNPOD] Image encoded: {image_kb:.1f} KB base64")
 
         # Payload format for our FastAPI server
+        prompt_type = str(kwargs.get("prompt_type") or "markdown")
         payload = {
             "image": image_b64,
-            "prompt_type": "markdown",  # Default to markdown for documents
+            "prompt_type": prompt_type,
+            "include_geometry": True,
         }
 
         start = time.time()
@@ -392,9 +394,11 @@ class RemoteGPUBackend(GPUBackend):
         except requests.RequestException as exc:
             logger.error(f"[RUNPOD] RunPod request failed: {exc}")
             raise RuntimeError(f"Remote GPU request failed: {exc}") from exc
+        except (ValueError, RuntimeError) as exc:
+            logger.error("Remote OCR returned error payload: %s", exc)
+            raise RuntimeError(f"Remote GPU returned error: {exc}") from exc
 
-        # Parse the FastAPI server response
-        # Our server returns: {"success": True, "text": "...", "processing_time": ..., "prompt_used": "..."}
+        # Parse the FastAPI server response which now includes structured lines
         text = str(result.get("text", ""))
         text_length = len(text)
 
@@ -413,8 +417,8 @@ class RemoteGPUBackend(GPUBackend):
         return OCRResult(
             text=text,
             lines=lines,
-            confidence=None,  # FastAPI server doesn't return confidence
-            processing_time=time.time() - start,
+            confidence=None,  # FastAPI server doesn't currently return aggregate confidence
+            processing_time=processing_time,
             source_file=source,
             processor=OCRProcessor.DEEPSEEK.value,
             backend="remote",
