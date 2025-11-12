@@ -179,6 +179,10 @@ class LocalGPUBackend(GPUBackend):
             repo_root.parent / "DeepSeek-OCR",
             Path("/workspace/DeepSeek-OCR"),
             Path("/workspace/deepseek-ocr"),
+            Path("/DeepSeek-OCR"),
+            Path("/deepseek-ocr"),
+            Path("/root/DeepSeek-OCR"),
+            Path("/root/deepseek-ocr"),
             Path.home() / "DeepSeek-OCR",
             Path.home() / "deepseek-ocr",
         ]
